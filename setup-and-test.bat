@@ -34,6 +34,10 @@ echo   done
 
 echo.
 echo [4/4] testing the MT5 connection (read-only, no orders)...
+if not exist ".env" (
+  echo   NOTE: no .env found. Run make-env.bat once (it asks for the Exness
+  echo   password and saves it LOCALLY) so the script can log in by itself.
+)
 ".venv\Scripts\python.exe" bridge\test_connection.py || goto :fail
 
 echo.
