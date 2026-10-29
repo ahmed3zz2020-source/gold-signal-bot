@@ -116,6 +116,9 @@ def connect(verbose=True):
     if verbose:
         if env_file:
             print("   env file          :", env_file)
+            print("   keys in .env      :", ", ".join(sorted(
+                k for k in os.environ if k.startswith("MT5_") or k in ("RISK_PCT", "DRY_RUN"))))
+            print("   password loaded   :", ("yes (%d chars)" % len(password)) if password else "NO / EMPTY")
         print("   expected account  :", exp_login or "(not set)", "|", exp_server or "(not set)")
 
     def _snapshot():
