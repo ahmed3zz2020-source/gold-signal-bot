@@ -85,8 +85,8 @@ export function evaluateOutcome(ev, bars1, opts = {}) {
   }
   if (!bars) return null;                                        // no data yet
   return {
-    id: eventId(ev), sig: ev.sig, dir: ev.dir, ts: ev.ts, result,
-    mfe: +mfe.toFixed(2), mae: +mae.toFixed(2), tExtreme, bars,
+    id: eventId(ev), sig: ev.sig, cls: ev.cls || 'X', dir: ev.dir, ts: ev.ts, result,
+    mfe: +mfe.toFixed(2), mae: +mae.toFixed(2), tExtreme, bars, kind: ev.kind,
     r: result === 'win' ? targetR : result === 'loss' ? -1 : 0,
   };
 }

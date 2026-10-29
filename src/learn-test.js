@@ -21,11 +21,13 @@ const bar = (t, o, h, l, c) => ({ t, o, h, l, c });
 
 // ---------------------------------------------------------------- 1. outcome evaluator
 {
-  const ev = { dir: 'long', ts: 1000, entry: 4000, sl: 3995, sig: 'x', bias: 'MIXED', atr15: 8 };
+  const ev = { dir: 'long', ts: 1000, entry: 4000, sl: 3995, sig: 'x', cls: 'M', bias: 'MIXED', atr15: 8 };
   const up = [bar(2 * MIN, 4000, 4008, 3999, 4006), bar(3 * MIN, 4006, 4012, 4005, 4010)];
   const r = evaluateOutcome(ev, up);
   ok('evaluator: +2R before -1R => win', r.result === 'win' && r.r === 2, JSON.stringify(r));
   ok('evaluator: MFE measured', r.mfe >= 2, JSON.stringify(r));
+  ok('evaluator: the outcome CARRIES the class (a lost class = a muted learning)',
+    r.cls === 'M', JSON.stringify(r));
 }
 {
   const ev = { dir: 'long', ts: 1000, entry: 4000, sl: 3995, sig: 'x' };
