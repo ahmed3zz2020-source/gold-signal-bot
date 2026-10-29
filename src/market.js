@@ -134,6 +134,12 @@ export function atr(bars, period = 14) {
   return a;
 }
 
+export function atrSeries(bars, period = 14) {
+  const out = [];
+  for (let i = period + 1; i <= bars.length; i++) out.push(atr(bars.slice(0, i), period));
+  return out;
+}
+
 // ---------------------------------------------------------------- time
 
 /** Local time in an IANA zone, e.g. cairoNow() -> {h,m,hhmm,date} */

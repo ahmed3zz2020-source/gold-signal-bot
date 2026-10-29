@@ -112,6 +112,44 @@ export function findRetest(bars5, mss, dir, atr5, cfg) {
   return null;
 }
 
+/**
+ * The WIDE net: every fresh M15 structure break (the first close beyond a fractal level).
+ * These are NOT trades — they are the learning's sample. The risk unit is ATR (so the
+ * counterfactual "+2 ATR before -1 ATR" is comparable across every structure).
+ */
+export function scanStructures(m15, sw, atr5, atr15, cfg, ctx) {
+  const out = [];
+  const unit = atr5 || 4;
+  // the learning population uses a WIDE window (the whole history), not the 12-bar
+  // MSS window: more samples per day is the whole point of the journal
+  const lookback = cfg.learningLookback ?? 60;
+  for (const dir of ['long', 'short']) {
+    const lv = dir === 'long' ? sw.highs : sw.lows;
+    for (const s of lv) {
+      if (s.idx < m15.length - 1 - lookback) continue;
+      let j = s.idx + 1;
+      for (; j < m15.length; j++) {
+        const brk = dir === 'long' ? m15[j].c > s.level : m15[j].c < s.level;
+        if (brk) break;
+      }
+      if (j >= m15.length) continue;
+      const bar = m15[j];
+      let sweep = false;
+      for (let k = j - 1; k >= Math.max(0, j - 4); k--) {
+        if (dir === 'long' && m15[k].h > s.level) sweep = true;
+        if (dir === 'short' && m15[k].l < s.level) sweep = true;
+      }
+      const entry = bar.c;
+      const risk = unit;
+      out.push({
+        dir, level: s.level, ts: bar.t, entry, sl: dir === 'long' ? entry - risk : entry + risk,
+        risk, sweep, atr5, atr15, bias: ctx.bias, mssLevel: s.level, cls: 'M',
+      });
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- targets, RR, grade
 
 export function pickTargets(levels, entry, dir, atr15, cfg) {
@@ -206,7 +244,7 @@ export function analyze(m1, cfg, now = Date.now()) {
       : price < ctx.ema50h1 && ctx.ema50h1 < ctx.ema200h1 ? 'BEARISH' : 'MIXED')
     : 'MIXED';
 
-  const out = { ok: true, ctx, candidates: [] };
+  const out = { ok: true, ctx, candidates: [], events: [], structures: scanStructures(closed15, sw, atr5, atr15, S, ctx) };
 
   for (const dir of ['long', 'short']) {
     if (S.requireBias) {                       // optional: only trade with the H1 bias
@@ -240,16 +278,22 @@ export function analyze(m1, cfg, now = Date.now()) {
     // the pool must be built around the ENTRY, not around the current price
     const entryLevels = liquidityMap(sw, entry, { above: dayHigh, below: dayLow, roundStep: S.roundStep, keyLevels: cfg.keyLevels || [] });
     const tps = pickTargets(entryLevels, entry, dir, atr15, S);
-    if (tps.length < 2) continue;
-    const g = gradeTrade(entry, sl, tps, dir, sweep, S);
-    if (!g) continue;
-    if (!S.fireGrades.includes(g.grade) && g.grade !== S.watchGrade) continue;
+    // NOTE: a structure with fewer than 2 clean targets is still a STRUCTURE — it is
+    // journalled (grade C) so the learning sees the whole sample, not only the pretty ones
+    const g = tps.length >= 2
+      ? gradeTrade(entry, sl, tps, dir, sweep, S)
+      : { grade: 'C', risk: Math.abs(entry - sl), rrs: [], blended: 0 };
+    if (!g || !g.risk) continue;
 
-    out.candidates.push({
+    const ev = {
       dir, grade: g.grade, entry, sl, tps, risk: g.risk, rrs: g.rrs, blended: g.blended,
       sweep, mssLevel: mss.level, mssTime: mss.mssBar.t, retestTime: rt.bar.t,
       atr5, atr15, bias: ctx.bias,
-    });
+    };
+    // EVERY structure goes into the journal (the learning needs the rejected ones too);
+    // only the fire/watch grades become candidates
+    out.events.push(ev);
+    if (tps.length >= 2 && (S.fireGrades.includes(g.grade) || g.grade === S.watchGrade)) out.candidates.push(ev);
   }
   return out;
 }

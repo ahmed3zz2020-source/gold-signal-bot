@@ -3,9 +3,11 @@
 
 import fs from 'fs';
 import path from 'path';
-import { BarBuilder, fetchSpot, fetchTV, fetchMacro, fetchCalendar, localNow, toMin, dayStartUtc } from './market.js';
+import { BarBuilder, fetchSpot, fetchTV, fetchMacro, fetchCalendar, localNow, toMin, dayStartUtc, atrSeries } from './market.js';
 import { analyze, newsBlackout } from './strategy.js';
 import { sendMessage, sendVoice, getUpdates, formatAlert, formatWatch, formatMap, formatSummary, formatTradeUpdate, formatStatus, formatLevels } from './telegram.js';
+import { appendJsonl, readJsonl, evaluateOutcome, signature, HORIZON_MIN } from './journal.js';
+import { buildPerformance, learningVerdict, rankCandidates } from './performance.js';
 
 const CFG = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 const TOKEN = process.env.TELEGRAM_TOKEN || process.env.TELEGRAM_BOT_TOKEN || CFG.telegram.token;
@@ -90,6 +92,76 @@ function mapExtras(ctx) {
   };
 }
 
+// ---------------------------------------------------------------- learning engine
+// Every candidate (fired OR skipped) is journalled with a uniform counterfactual outcome.
+// The learning may only REMOVE setups that are demonstrably worse than average; it never
+// touches the hard rules (0.5% risk, 1.5% daily cap, 2:1 floor, blackout, no stacking).
+const JOURNAL_FILE = process.env.JOURNAL_FILE || path.join(process.cwd(), 'journal.jsonl');
+const OUTCOMES_FILE = process.env.OUTCOMES_FILE || path.join(process.cwd(), 'outcomes.jsonl');
+const LC = { ...(CFG.learning || {}) };
+let perf = { pGlobal: LC.priorP ?? 0.4, n: 0, rawN: 0, buckets: [], opts: LC };
+const journalSeen = new Set();
+let lastResolve = 0, lastPerf = 0;
+
+const median = (a) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+const atr15Median = () => median(atrSeries(builder.series(15), 14).slice(-30));
+const nearestKeyDist = (entry, levels, atr) => {
+  if (!levels?.length || !atr) return 99;
+  let best = 99;
+  for (const l of levels) best = Math.min(best, Math.abs(l - entry) / atr);
+  return +best.toFixed(2);
+};
+
+function refreshPerf() {
+  if (!LC.enabled) return;
+  perf = buildPerformance(readJsonl(OUTCOMES_FILE), now(), LC);
+  lastPerf = now();
+}
+function loadLearning() {
+  if (!LC.enabled) return;
+  for (const r of readJsonl(JOURNAL_FILE)) journalSeen.add(r.id);
+  refreshPerf();
+  console.log(`[learn] journal=${journalSeen.size} resolved=${perf.rawN} pGlobal=${perf.pGlobal}`);
+}
+/** Judge every journalled event that is old enough, then rebuild the table. */
+function resolveOutcomes() {
+  if (!LC.enabled) return;
+  const bars1 = builder.series(1);
+  const done = new Set(readJsonl(OUTCOMES_FILE).map((r) => r.id));
+  const evs = readJsonl(JOURNAL_FILE);
+  let added = 0;
+  for (const ev of evs) {
+    if (done.has(ev.id)) continue;
+    if (now() < ev.ts + (LC.horizonMin ?? HORIZON_MIN) * 60000) continue;   // not old enough
+    const r = evaluateOutcome(ev, bars1, { horizonMin: LC.horizonMin, targetR: LC.targetR });
+    if (r) { appendJsonl(OUTCOMES_FILE, r); added++; }
+  }
+  if (added) refreshPerf();
+  lastResolve = now();
+}
+
+/** Journal a candidate so history can be learned from (fired or skipped, both count). */
+function journalCandidate(c, cls) {
+  if (!LC.enabled) return;
+  const isStruct = cls === 'M';
+  const sid = isStruct
+    ? `M-${c.dir}-${c.mssLevel.toFixed(1)}-${c.ts}`
+    : `${c.dir}-${c.mssLevel.toFixed(1)}-${c.entry.toFixed(2)}`;
+  if (journalSeen.has(sid)) return;
+  const keyDist = nearestKeyDist(c.entry, CFG.keyLevels || [], c.atr15);
+  const cls2 = isStruct ? 'M' : (c.grade === 'A' || c.grade === 'A+' ? 'A' : (c.grade || 'C'));
+  const ev = {
+    id: sid, dir: c.dir, ts: isStruct ? c.ts : now(), entry: c.entry, sl: c.sl,
+    tps: c.tps || [], rrs: c.rrs || [], grade: c.grade || 'M', cls: cls2,
+    sweep: !!c.sweep, bias: c.bias, atr5: c.atr5, atr15: c.atr15,
+    mssLevel: c.mssLevel, blended: c.blended, keyDist,
+    sig: signature({ ...c, ts: isStruct ? c.ts : now(), keyDist }, { atr15Med: atr15Median() }),
+  };
+  journalSeen.add(sid);
+  appendJsonl(JOURNAL_FILE, ev);
+  c.sig = ev.sig; c.cls = cls2;
+}
+
 // ---------------------------------------------------------------- trade tracking
 function checkOpenTrades(price) {
   const money = CFG.risk.accountUsd * (CFG.risk.perTradePct / 100);
@@ -133,6 +205,11 @@ async function evaluate() {
   rolloverDay();
   checkOpenTrades(ctx.price);
 
+  // journal EVERY structure first (history is the learning's raw material) — this happens
+  // OUTSIDE the session and outside blackouts too: the journal is for learning, not for trading
+  for (const c of (res.events || res.candidates)) journalCandidate(c, null);
+  for (const st of (res.structures || [])) journalCandidate(st, 'M');
+
   const t = l();
   if (inSession() && !state.morningSent && builder.series(15).length >= 20) {
     state.morningSent = true;
@@ -173,7 +250,8 @@ async function evaluate() {
     return;
   }
 
-  for (const c of res.candidates) {
+  const ranked = rankCandidates(res.candidates, perf, CFG.signals.fireGrades);
+  for (const c of ranked) {
     const k = keyOf(c);
     if (state.firedKeys[k]) continue;
     if (!CFG.signals.fireGrades.includes(c.grade)) {
@@ -181,6 +259,13 @@ async function evaluate() {
         state.lastWatch = now(); state.firedKeys[k] = 1;
         notify(formatWatch(c));
       }
+      continue;
+    }
+    // SOFT GATE (the learning): a setup type that is demonstrably worse than average
+    // gets skipped. It can never loosen anything — it only removes.
+    const verdict = learningVerdict(perf, c.sig, c.cls || 'A');
+    if (verdict.skip) {
+      console.log(`[learn] skipped ${c.dir} ${c.entry.toFixed(2)} — ${verdict.why}`);
       continue;
     }
     state.firedKeys[k] = 1;
@@ -230,7 +315,7 @@ async function commands() {
 }
 
 // ---------------------------------------------------------------- boot
-load(); rebuild();
+load(); rebuild(); loadLearning();
 // optional backfill: TICK_SEED=/path/ticks.csv (csv: ts,bid,ask with ts in SECONDS)
 const seed = process.env.TICK_SEED;
 if (seed && fs.existsSync(seed)) {
@@ -263,4 +348,7 @@ setInterval(tick, CFG.poll.tickSeconds * 1000);
 setInterval(() => { evaluate().catch((e) => console.error('[eval]', e.message)); }, CFG.poll.evalSeconds * 1000);
 setInterval(() => { save(); }, 60000);
 setInterval(() => { commands(); }, 15000);
+setTimeout(() => { try { resolveOutcomes(); } catch (e) { console.error('[learn]', e.message); } }, 60 * 1000);  // resolve the backlog at boot
+setInterval(() => { resolveOutcomes(); }, 10 * 60000);          // judge old events
+setInterval(() => { if (now() - lastPerf > (LC.refreshMin ?? 30) * 60000) refreshPerf(); }, 5 * 60000);
 tick(); evaluate().catch(() => {});

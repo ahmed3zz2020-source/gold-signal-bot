@@ -68,5 +68,16 @@
     4066,
     4071,
     4082.82
-  ]
+  ],
+  "learning": {
+    "enabled": true,
+    "minSamples": 8,
+    "margin": 0.1,
+    "alpha": 10,
+    "priorP": 0.4,
+    "halfLifeDays": 20,
+    "targetR": 2,
+    "horizonMin": 120,
+    "refreshMin": 30
+  }
 }
