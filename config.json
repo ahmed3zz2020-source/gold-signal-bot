@@ -1,0 +1,72 @@
+{
+  "telegram": {
+    "token": "",
+    "chatId": ""
+  },
+  "session": {
+    "startCairo": "09:00",
+    "endCairo": "18:00",
+    "tz": "Africa/Cairo"
+  },
+  "risk": {
+    "perTradePct": 0.5,
+    "dailyLossCapPct": 1.5,
+    "maxTradesPerDay": 2,
+    "accountUsd": 10000
+  },
+  "signals": {
+    "swingLookback": 2,
+    "m15History": 40,
+    "mssLookbackM15": 12,
+    "retestBufferAtr": 0.15,
+    "stopBufferAtr5": 0.3,
+    "minTp1Atr15": 0.6,
+    "minRR2": 2.0,
+    "minBlendedRR": 2.0,
+    "gradeAplusBlendedRR": 3.0,
+    "maxTpAtr15": 4.0,
+    "fireGrades": [
+      "A+",
+      "A"
+    ],
+    "watchGrade": "B",
+    "roundStep": 5,
+    "requireBias": false
+  },
+  "news": {
+    "usHighBeforeMin": 30,
+    "usHighAfterMin": 15,
+    "usExtendedBeforeMin": 60,
+    "usExtendedAfterMin": 45,
+    "usExtendedKeywords": [
+      "PCE",
+      "GDP",
+      "CPI",
+      "NFP",
+      "FOMC",
+      "Retail Sales",
+      "Payroll"
+    ],
+    "eurHighBeforeMin": 30,
+    "eurHighAfterMin": 30
+  },
+  "poll": {
+    "tickSeconds": 10,
+    "evalSeconds": 10
+  },
+  "watch": {
+    "enabled": true,
+    "cooldownMin": 45
+  },
+  "keyLevels": [
+    4000,
+    4005,
+    4015.4,
+    4044.5,
+    4050,
+    4055,
+    4066,
+    4071,
+    4082.82
+  ]
+}

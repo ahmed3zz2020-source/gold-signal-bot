@@ -1,0 +1,13 @@
+{
+  "name": "gold-signal-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "XAUUSD liquidity/MSS scan -> Telegram alerts",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/index.js",
+    "replay": "node src/replay.js",
+    "backtest": "node src/replay.js"
+  }
+}
