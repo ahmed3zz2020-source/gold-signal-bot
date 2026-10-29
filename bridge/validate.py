@@ -3,6 +3,11 @@
 # The engine already applies every rule. The bridge checks them AGAIN, locally, before
 # it touches the broker. This is defence in depth: if the engine is compromised, buggy or
 # simply wrong, the bridge refuses the trade. Any failure => NO TRADE (never a fallback).
+#
+# Two volume modes:
+#   * risk mode   (default)  -> the size comes from a % of the balance
+#   * fixed mode  (FIXED_VOLUME > 0) -> the trader's own size, always the same
+#     (rounded DOWN to the broker's step; refused if it is below the broker's minimum)
 
 from dataclasses import dataclass, field
 
@@ -52,11 +57,30 @@ def compute_volume(balance, risk_pct, stop_points, contract_size, point_value_pe
     return round(vol, 2)
 
 
+def fixed_volume_size(fixed_vol, min_vol=0.01, max_vol=100.0, step=0.01):
+    """The trader's FIXED size (e.g. 0.01 lot), rounded DOWN to the broker's step.
+
+    ⛔ If it is below the broker's minimum we refuse (0 = no trade). We never round UP
+       to the minimum: that would silently multiply the risk."""
+    if fixed_vol <= 0:
+        return 0.0
+    vol = min(float(fixed_vol), max_vol)
+    vol = int((vol + 1e-9) / step) * step
+    if vol < min_vol - 1e-9:
+        return 0.0
+    return round(vol, 2)
+
+
 def validate_signal(sig, *, live_price, open_positions, trades_today, daily_r_pct,
                     balance, symbol, risk_pct=0.5, max_trades_per_day=2,
                     daily_cap_pct=1.5, max_price_drift=2.0, max_signal_age_s=120,
                     min_rr=MIN_RR, now_ms=None, contract_size=100.0,
-                    point_value_per_lot=100.0, min_vol=0.01, vol_step=0.01):
+                    point_value_per_lot=100.0, min_vol=0.01, vol_step=0.01,
+                    # ---- the fixed-lot mode + the guards that protect a small account
+                    fixed_volume=0.0, spread_points=0.0, max_spread_points=0.0,
+                    min_stop_points=0.0, max_stop_points=0.0,
+                    max_risk_pct_per_trade=0.0, daily_cap_r=0.0, losses_today=0,
+                    max_margin_use_pct=0.0, leverage=0.0):
     """Return (ok, reason, plan). The plan is None when the trade is refused."""
     import time
     now = now_ms if now_ms is not None else int(time.time() * 1000)
@@ -67,7 +91,7 @@ def validate_signal(sig, *, live_price, open_positions, trades_today, daily_r_pc
     # 1) the signal must be fresh
     age = (now - int(sig.get("ts", 0))) / 1000.0
     if age > max_signal_age_s:
-        return False, f"الإشارة قديمة ({age:.0f}s > {max_signal_age_s}s)", None
+        return False, f"الإشارة قديمة ({age:.0f}s > {max_signal_age_s})", None
     if sig.get("expiresTs") and now > int(sig["expiresTs"]):
         return False, "الإشارة انتهت صلاحيتها", None
 
@@ -97,9 +121,9 @@ def validate_signal(sig, *, live_price, open_positions, trades_today, daily_r_pc
     if trades_today >= max_trades_per_day:
         return False, f"وصلت لحد {max_trades_per_day} صفقات في اليوم", None
 
-    # 6) the daily loss cap
-    if daily_r_pct + risk_pct > daily_cap_pct + 1e-9:
-        return False, f"وقف اليوم (خسارة {daily_r_pct:.2f}% + {risk_pct}%)", None
+    # 6) the daily stop after N losing trades (R-based, from the broker's history)
+    if daily_cap_r > 0 and losses_today >= daily_cap_r:
+        return False, f"وقف اليوم ({losses_today} صفقات خاسرة - الحد {daily_cap_r})", None
 
     # 7) the price must still be in the zone
     if live_price is None:
@@ -108,14 +132,54 @@ def validate_signal(sig, *, live_price, open_positions, trades_today, daily_r_pc
     if drift > max_price_drift:
         return False, f"السعر اتحرك {drift:.2f} نقطة (الحد {max_price_drift})", None
 
-    # 8) the volume
-    vol = compute_volume(balance, risk_pct, risk, contract_size, point_value_per_lot,
-                          min_vol=min_vol, step=vol_step)
-    if vol <= 0:
-        return False, "مفيش حجم صفقة صالح", None
+    # 8) the spread — we pay it on the way in AND on the way out
+    spread = max(0.0, float(spread_points or 0.0))
+    if max_spread_points > 0 and spread > max_spread_points:
+        return False, f"السبريد عالي ({spread:.2f} نقطة > الحد {max_spread_points})", None
+
+    # 9) the stop distance has to make sense (too tight = noise, too wide = a small account dies)
+    if min_stop_points > 0 and risk < min_stop_points:
+        return False, f"الوقف قريب جداً ({risk:.2f} نقطة < الحد {min_stop_points})", None
+    if max_stop_points > 0 and risk > max_stop_points:
+        return False, f"الوقف بعيد جداً ({risk:.2f} نقطة > الحد {max_stop_points})", None
+
+    # 10) the volume — the real loss includes the spread
+    eff_risk = risk + spread
+    if fixed_volume > 0:
+        vol = fixed_volume_size(fixed_volume, min_vol=min_vol, step=vol_step)
+        if vol <= 0:
+            return False, "الحجم الثابت أصغر من أصغر لوت مسموح عند البروكر", None
+    else:
+        vol = compute_volume(balance, risk_pct, eff_risk, contract_size, point_value_per_lot,
+                              min_vol=min_vol, step=vol_step)
+        if vol <= 0:
+            return False, "مفيش حجم صفقة صالح", None
+
+    # 11) the margin guard (the leverage is the real danger on a small account)
+    #     the notional is computed in the ACCOUNT currency (USC on a cent account):
+    #     value of 1.0 of price for `vol` lots = price * vol * point_value_per_lot
+    if max_margin_use_pct > 0 and leverage > 0 and balance > 0:
+        notional = float(live_price) * vol * point_value_per_lot
+        margin = notional / leverage
+        use_pct = margin / balance * 100.0
+        if use_pct > max_margin_use_pct:
+            return False, (f"الهامش {use_pct:.1f}% من الحساب أكبر من الحد "
+                           f"{max_margin_use_pct}%"), None
+
+    # 12) what this trade really risks (money AND % of the account)
+    risk_money = eff_risk * point_value_per_lot * vol
+    risk_pct_actual = (risk_money / balance * 100.0) if balance > 0 else 100.0
+    if max_risk_pct_per_trade > 0 and risk_pct_actual > max_risk_pct_per_trade:
+        return False, (f"مخاطرة الصفقة {risk_pct_actual:.2f}% أكبر من الحد "
+                       f"{max_risk_pct_per_trade}%"), None
+
+    # 13) the daily loss cap — measured with the REAL risk of this trade
+    if daily_r_pct + risk_pct_actual > daily_cap_pct + 1e-9:
+        return False, f"وقف اليوم (خسارة {daily_r_pct:.2f}% + {risk_pct_actual:.2f}%)", None
 
     action = "BUY" if sig.get("dir") == "long" else "SELL"
     plan = Plan(action=action, symbol=symbol, volume=vol,
                 price=float(live_price), sl=sl, tp=tps[0], tps=tps,
                 comment=f"goldbot-{sig.get('grade')}-{sig.get('id','')}"[:30])
-    return True, f"مقبول: {action} {vol} @ {live_price} (RR {rrs[1]:.2f})", plan
+    return True, (f"مقبول: {action} {vol} @ {live_price} (RR {rrs[1]:.2f} | "
+                  f"خسارة {risk_pct_actual:.2f}%)"), plan

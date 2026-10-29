@@ -47,13 +47,26 @@ DAILY_CAP_PCT = float(os.environ.get("DAILY_CAP_PCT", "1.5"))
 MAX_TRADES_PER_DAY = int(os.environ.get("MAX_TRADES_PER_DAY", "2"))
 MAX_PRICE_DRIFT = float(os.environ.get("MAX_PRICE_DRIFT", "2.0"))
 MAX_SIGNAL_AGE_S = int(os.environ.get("MAX_SIGNAL_AGE_S", "120"))
+
+# ---- the trader's own size (FIXED_VOLUME > 0) + the guards for a small account
+# FIXED_VOLUME = the SAME lot every time (e.g. 0.01). 0 = use the % risk above.
+FIXED_VOLUME = float(os.environ.get("FIXED_VOLUME", "0") or 0)
+MAX_RISK_PCT_PER_TRADE = float(os.environ.get("MAX_RISK_PCT_PER_TRADE", "0") or 0)
+MIN_STOP_POINTS = float(os.environ.get("MIN_STOP_POINTS", "0") or 0)
+MAX_STOP_POINTS = float(os.environ.get("MAX_STOP_POINTS", "0") or 0)
+MAX_SPREAD_POINTS = float(os.environ.get("MAX_SPREAD_POINTS", "0") or 0)
+DAILY_CAP_R = float(os.environ.get("DAILY_CAP_R", "0") or 0)
+MAX_MARGIN_USE_PCT = float(os.environ.get("MAX_MARGIN_USE_PCT", "0") or 0)
+ORDER_FILLING = os.environ.get("ORDER_FILLING", "IOC").upper()
 DRY_RUN = os.environ.get("DRY_RUN", "1") not in ("0", "false", "False")
 SELFTEST_SIGNAL = os.environ.get("SELFTEST_SIGNAL", "0") not in ("0", "false", "False")
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "5"))
 LOG_FILE = os.environ.get("BRIDGE_LOG", "bridge.jsonl")
 
 MAGIC = 20261029
-_state = {"trades_today": 0, "day": None, "daily_r_pct": 0.0, "started": time.time()}
+_state = {"trades_today": 0, "day": None, "daily_r_pct": 0.0, "started": time.time(),
+          "local_entries": 0, "losses_today": 0, "closed_today": 0, "realized_today": 0.0,
+          "day_start_balance": None, "logged_entries": -1, "logged_balance": False}
 
 
 def log(event, **kw):
@@ -141,11 +154,24 @@ def symbol_spec(mt5):
     contract = float(getattr(info, "trade_contract_size", 100.0) or 100.0)
     tick_value = float(getattr(info, "trade_tick_value", 1.0) or 1.0)
     tick_size = float(getattr(info, "trade_tick_size", 0.01) or 0.01)
+    point = float(getattr(info, "point", 0.01) or 0.01)
     point_value_per_lot = tick_value * (1.0 / tick_size) if tick_size else 100.0
     return {"symbol": MT5_SYMBOL, "contract": contract, "point_value": point_value_per_lot,
             "volume_min": float(getattr(info, "volume_min", 0.01) or 0.01),
             "volume_step": float(getattr(info, "volume_step", 0.01) or 0.01),
+            "point": point,
             "digits": int(getattr(info, "digits", 2) or 2)}
+
+
+def _filling_modes(mt5):
+    """The filling mode the broker accepts (Exness differs per account type:
+    Standard Cent often wants RETURN, others IOC/FOK). We try the preferred one first
+    and fall back to the others — never fail a good signal because of a filling mode."""
+    pref = {"FOK": mt5.ORDER_FILLING_FOK, "IOC": mt5.ORDER_FILLING_IOC,
+            "RETURN": mt5.ORDER_FILLING_RETURN}
+    first = pref.get(ORDER_FILLING)
+    rest = [v for k, v in pref.items() if v != first]
+    return ([first] if first else []) + rest
 
 
 def send_order(mt5, plan, spec):
@@ -166,16 +192,26 @@ def send_order(mt5, plan, spec):
         "magic": MAGIC,
         "comment": plan.comment,
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,   # override with the broker's mode if it rejects
     }
-    chk = mt5.order_check(req)
-    log("order_check", retcode=chk.retcode if chk else None, comment=chk.comment if chk else None,
-        retcode_msg=chk.retcode if chk else None)
+    ok_codes = (0, getattr(mt5, "TRADE_RETCODE_DONE", 10009), getattr(mt5, "TRADE_RETCODE_PLACED", 10008))
+    chosen = None
+    for mode in _filling_modes(mt5):
+        req["type_filling"] = mode
+        chk = mt5.order_check(req)
+        code = chk.retcode if chk else None
+        log("order_check", filling=mode, retcode=code, comment=chk.comment if chk else None)
+        if code in ok_codes:
+            chosen = mode
+            break
+    if chosen is None:
+        log("order_check_failed_all_filling_modes",
+            note="مفيش وضع تنفيذ مناسب - الطلب مرفوض من البروكر")
+        return False
     res = mt5.order_send(req)
     ok = res is not None and res.retcode == mt5.TRADE_RETCODE_DONE
     log("order_send", ok=ok, retcode=res.retcode if res else None,
         comment=res.comment if res else None, order=res.order if res else None,
-        volume=plan.volume, price=price, sl=plan.sl, tp=plan.tp)
+        filling=chosen, volume=plan.volume, price=price, sl=plan.sl, tp=plan.tp)
     return ok
 
 
@@ -191,6 +227,60 @@ def synthetic_signal(price, direction="long"):
             "tps": tps, "rrs": [abs(t - entry) / risk for t in tps],
             "ts": int(time.time() * 1000), "expiresTs": int(time.time() * 1000) + 120000,
             "symbol": MT5_SYMBOL}
+
+
+def day_start_dt():
+    import datetime
+    now = datetime.datetime.now()
+    return datetime.datetime(now.year, now.month, now.day)
+
+
+def read_day_deals(mt5):
+    """The BROKER's own truth about today: how many orders we opened, how many closed
+    at a loss, and the realised money. This survives a restart of the bridge, so the
+    daily caps cannot be reset by restarting the program.
+
+    Returns (entries, exits, losses, profit) or None when the history is unavailable.
+    profit is in the ACCOUNT currency (USC on a cent account)."""
+    import datetime
+    try:
+        deals = mt5.history_deals_get(day_start_dt(), datetime.datetime.now())
+    except Exception as e:
+        log("history_error", error=str(e))
+        return None
+    if not deals:
+        return (0, 0, 0, 0.0)
+    entries = exits = losses = 0
+    profit = 0.0
+    for d in deals:
+        if int(getattr(d, "magic", 0) or 0) != MAGIC:
+            continue
+        if getattr(d, "symbol", "") != MT5_SYMBOL:
+            continue
+        entry = int(getattr(d, "entry", 0) or 0)
+        if entry == 1:                      # DEAL_ENTRY_OUT = the closed side
+            exits += 1
+            p = (float(getattr(d, "profit", 0.0) or 0.0)
+                 + float(getattr(d, "commission", 0.0) or 0.0)
+                 + float(getattr(d, "swap", 0.0) or 0.0))
+            profit += p
+            if p < 0:
+                losses += 1
+        else:
+            entries += 1
+    return (entries, exits, losses, profit)
+
+
+def spread_points(mt5, spec):
+    """The live spread in points (0.01 of a price = 1 point for gold)."""
+    try:
+        tick = mt5.symbol_info_tick(MT5_SYMBOL)
+    except Exception:
+        return 0.0
+    if not tick:
+        return 0.0
+    point = spec.get("point") or 0.01
+    return max(0.0, (float(tick.ask) - float(tick.bid)) / point)
 
 
 def main():
@@ -222,23 +312,45 @@ def main():
             # the day rollover for the local counters
             day = time.strftime("%Y-%m-%d")
             if _state["day"] != day:
-                _state.update({"day": day, "trades_today": 0, "daily_r_pct": 0.0})
+                _state.update({"day": day, "trades_today": 0, "daily_r_pct": 0.0,
+                               "losses_today": 0, "closed_today": 0, "realized_today": 0.0})
 
             positions = mt5.positions_get(symbol=MT5_SYMBOL)
             n_open = len(positions) if positions else 0
             acc = mt5.account_info()
             balance = acc.balance if acc else ACCOUNT_BALANCE
+            leverage = float(getattr(acc, "leverage", 0) or 0) if acc else 0.0
             if acc and not _state.get("logged_balance"):
                 _state["logged_balance"] = True
                 cur = getattr(acc, "currency", "")
                 cent = cur.upper().endswith("C") and len(cur.upper()) == 3
                 log("account", login=acc.login, currency=cur, balance=balance,
-                    cent_account=cent,
+                    cent_account=cent, leverage=leverage,
                     note=("الرصيد والسعر بالـsnt (cents) — عشان كده الحساب 0.5% بيتحسب على "
                           "نفس العملة، واللوت بيتحسب من tick_value اللي في الـterminal") if cent else "حساب USD عادي")
                 log("spec", symbol=spec["symbol"], contract_size=spec["contract"],
                     point_value_per_lot=spec["point_value"], volume_min=spec["volume_min"],
-                    volume_step=spec["volume_step"])
+                    volume_step=spec["volume_step"], point=spec.get("point"),
+                    fixed_volume=FIXED_VOLUME, max_trades_per_day=MAX_TRADES_PER_DAY)
+
+            # ⛔ the daily counters come from the BROKER (history), not from a local
+            #    counter that a restart would wipe. If the history is unavailable we keep
+            #    the last known values (never reset them to zero => never lose a cap).
+            day_deals = read_day_deals(mt5)
+            if day_deals is not None:
+                entries, exits, losses, profit = day_deals
+                entries = max(entries, int(_state.get("local_entries", 0) or 0))
+                day_start_balance = _state.get("day_start_balance") or balance or 1.0
+                if not _state.get("day_start_balance"):
+                    _state["day_start_balance"] = balance
+                _state.update({"trades_today": entries, "losses_today": losses,
+                               "closed_today": exits, "realized_today": profit,
+                               "daily_r_pct": max(0.0, -profit) / day_start_balance * 100.0})
+                if entries != _state.get("logged_entries"):
+                    _state["logged_entries"] = entries
+                    log("day_state", entries=entries, exits=exits, losses=losses,
+                        realized=round(profit, 2), daily_r_pct=round(_state["daily_r_pct"], 3),
+                        day_start_balance=day_start_balance)
 
             sig = fetch_signal()
             if balance <= 0:
@@ -254,16 +366,24 @@ def main():
                     sig = synthetic_signal(t0.ask if True else t0.ask)
                     log("selftest_signal", price=sig["entry"], note="محاكاة — مفيش أي أمر حقيقي")
             if sig:
+                spr = spread_points(mt5, spec)
                 ok, why, plan = validate_signal(
                     sig, live_price=(mt5.symbol_info_tick(MT5_SYMBOL).ask
                                      if mt5.symbol_info_tick(MT5_SYMBOL) else None),
                     open_positions=list(positions or []),
                     trades_today=_state["trades_today"], daily_r_pct=_state["daily_r_pct"],
+                    losses_today=_state.get("losses_today", 0),
                     balance=balance, symbol=MT5_SYMBOL, risk_pct=RISK_PCT,
                     max_trades_per_day=MAX_TRADES_PER_DAY, daily_cap_pct=DAILY_CAP_PCT,
                     max_price_drift=MAX_PRICE_DRIFT, max_signal_age_s=MAX_SIGNAL_AGE_S,
                     contract_size=spec["contract"], point_value_per_lot=spec["point_value"],
-                    min_vol=spec["volume_min"], vol_step=spec["volume_step"])
+                    min_vol=spec["volume_min"], vol_step=spec["volume_step"],
+                    fixed_volume=FIXED_VOLUME, spread_points=spr,
+                    max_spread_points=MAX_SPREAD_POINTS,
+                    min_stop_points=MIN_STOP_POINTS, max_stop_points=MAX_STOP_POINTS,
+                    max_risk_pct_per_trade=MAX_RISK_PCT_PER_TRADE,
+                    daily_cap_r=DAILY_CAP_R, max_margin_use_pct=MAX_MARGIN_USE_PCT,
+                    leverage=leverage)
                 log("signal", ok=ok, why=why, sig_id=sig.get("id"), grade=sig.get("grade"),
                     dir=sig.get("dir"), entry=sig.get("entry"))
                 if ok and plan:
@@ -280,12 +400,27 @@ def main():
                     else:
                         plan.volume = round(vol, 4)
                     if ok and plan:
+                        # what this trade really costs us (money + % + margin)
+                        eff_risk = abs(float(plan.price) - float(plan.sl)) + spr
+                        risk_money = eff_risk * spec["point_value"] * plan.volume
+                        risk_pct = (risk_money / balance * 100.0) if balance else 0.0
+                        # the notional in the ACCOUNT currency (USC on a cent account)
+                        notional = float(plan.price) * plan.volume * spec["point_value"]
+                        margin = notional / leverage if leverage else 0.0
+                        margin_pct = (margin / balance * 100.0) if balance else 0.0
+                        risk_info = {"risk_points": round(eff_risk, 2),
+                                     "risk_money": round(risk_money, 2),
+                                     "risk_pct": round(risk_pct, 3),
+                                     "margin": round(margin, 2),
+                                     "margin_pct": round(margin_pct, 2),
+                                     "spread": round(spr, 2)}
                         if DRY_RUN:
-                            log("dry_run_trade", plan=plan.as_dict())
-                            _state["trades_today"] += 1
+                            log("dry_run_trade", plan=plan.as_dict(), **risk_info)
+                            _state["local_entries"] += 1
                         else:
                             if send_order(mt5, plan, spec):
-                                _state["trades_today"] += 1
+                                _state["local_entries"] += 1
+                                log("trade_opened", volume=plan.volume, **risk_info)
                             else:
                                 log("order_failed_no_fallback")
             time.sleep(POLL_SECONDS)

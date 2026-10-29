@@ -256,12 +256,12 @@ async function evaluate() {
   if (open) return;
   if (!inSession()) return;
   if (state.trades.length >= CFG.risk.maxTradesPerDay) return;
-  // daily loss cap: 1.5% of the account (0.5% per trade) => 3 losing R => STOP FOR TODAY
-  const capR = -(CFG.risk.dailyLossCapPct / CFG.risk.perTradePct);
+  // daily loss cap: 3 losing R => STOP FOR TODAY (dailyCapR wins; the % is the fallback)
+  const capR = -Math.abs(CFG.risk.dailyCapR ?? (CFG.risk.dailyLossCapPct / CFG.risk.perTradePct));
   if (state.dailyR <= capR) {
     if (!state.dayStopped) {
       state.dayStopped = true; save();
-      notify('⛔ وصلنا لحد الخسارة اليومي (1.5%) — وقف التداول لليوم');
+      notify('⛔ وصلنا لحد الخسارة اليومي — وقف التداول لليوم');
     }
     return;
   }

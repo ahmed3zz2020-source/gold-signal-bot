@@ -9,10 +9,11 @@
     "tz": "Africa/Cairo"
   },
   "risk": {
-    "perTradePct": 0.5,
-    "dailyLossCapPct": 1.5,
-    "maxTradesPerDay": 2,
-    "accountUsd": 10000
+    "perTradePct": 0.3,
+    "dailyLossCapPct": 1.0,
+    "dailyCapR": 3,
+    "maxTradesPerDay": 10,
+    "accountUsd": 33.53
   },
   "signals": {
     "swingLookback": 2,
