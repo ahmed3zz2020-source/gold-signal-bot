@@ -106,9 +106,29 @@ def mt5_connect():
     return mt5, mt5
 
 
+GOLD_CANDIDATES = ["XAUUSD", "XAUUSDm", "XAUUSDc", "XAUUSDmicro", "GOLD", "GOLDm", "XAUUSD.f"]
+
+
+def resolve_gold_symbol(mt5):
+    """Find the gold symbol THIS account actually uses (Exness names it differently per
+    account type: XAUUSD / XAUUSDm / XAUUSDc). Never hardcode it."""
+    if MT5_SYMBOL:
+        info = mt5.symbol_info(MT5_SYMBOL)
+        if info is not None:
+            return MT5_SYMBOL
+    names = [s.name for s in (mt5.symbols_get() or [])]
+    for cand in GOLD_CANDIDATES:
+        if cand in names:
+            return cand
+    goldish = [n for n in names if "XAU" in n.upper() or "GOLD" in n.upper()]
+    return goldish[0] if goldish else None
+
+
 def symbol_spec(mt5):
     """The symbol is resolved from the terminal (never hardcoded blindly) and we read the
     contract size so the lot maths matches THIS account."""
+    global MT5_SYMBOL
+    MT5_SYMBOL = resolve_gold_symbol(mt5) or MT5_SYMBOL
     info = mt5.symbol_info(MT5_SYMBOL)
     if info is None:
         log("symbol_not_found", symbol=MT5_SYMBOL, available=[s.name for s in mt5.symbols_get()][:40])
