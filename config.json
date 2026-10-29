@@ -78,6 +78,12 @@
     "halfLifeDays": 20,
     "targetR": 2,
     "horizonMin": 120,
-    "refreshMin": 30
+    "refreshMin": 30,
+    "classMinSamples": 24,
+    "classMinDays": 3,
+    "classMaxExpR": -0.1,
+    "minDays": 2,
+    "fallbackMinSamples": 16,
+    "fallbackMargin": 0.15
   }
 }

@@ -30,13 +30,16 @@ export function buildPerformance(resolved, now = Date.now(), opts = {}) {
   for (const rec of resolved) {
     const w = decay((now - rec.ts) / 86400000, o.halfLifeDays);
     const cls = rec.cls || 'X';
-    const g = globals[cls] || (globals[cls] = { W: 0, L: 0, N: 0 });
+    const g = globals[cls] || (globals[cls] = { W: 0, L: 0, N: 0, days: new Set() });
+    g.days.add(new Date(rec.ts).toISOString().slice(0, 10));
     g.N += w;
     if (rec.result === 'win') g.W += w;
     else if (rec.result === 'loss') g.L += w;
     const key = `${rec.sig}#${cls}`;
     const b = buckets.get(key) || { sig: rec.sig, cls: rec.cls || 'X', n: 0, w: 0, wins: 0, losses: 0, timeouts: 0, rSum: 0 };
     b.n++; b.w += w;
+    b.daySet = b.daySet || new Set();
+    b.daySet.add(new Date(rec.ts).toISOString().slice(0, 10));
     if (rec.result === 'win') { b.wins += w; b.rSum += w * o.targetR; }
     else if (rec.result === 'loss') { b.losses += w; b.rSum += -w; }
     else { b.timeouts += w; }
@@ -61,7 +64,8 @@ export function buildPerformance(resolved, now = Date.now(), opts = {}) {
     // winning less than the prior (minus the margin) is not worth taking, even when it
     // happens to be the only type inside its class.
     b.baseline = +Math.max(b.pGlobalCls, o.priorP).toFixed(3);
-    b.blocked = b.n >= o.minSamples && b.pWin < b.baseline - o.margin;
+    b.days = b.daySet.size;
+    b.blocked = b.n >= o.minSamples && b.days >= (o.minDays ?? 2) && b.pWin < b.baseline - o.margin;
     b.samples = b.n;
     b.reason = b.blocked ? `أضعف من المتوسط (${b.pWin} مقابل ${pGlobal.toFixed(3)}) ب${b.n} عينة`
       : b.n < o.minSamples ? `عينات قليلة (${b.n}) ⇒ القرار يفضل القواعد الثابتة` : 'مقبول';
@@ -71,10 +75,13 @@ export function buildPerformance(resolved, now = Date.now(), opts = {}) {
   for (const [k, g] of Object.entries(globals)) {
     const p = pOf(g);
     const pL = (g.L + o.alpha * (1 - o.priorP)) / (g.N + o.alpha);
+    const expR = p * o.targetR - pL;
     classes[k] = {
-      p: +p.toFixed(3), n: Math.round(g.N),
-      expR: +(p * o.targetR - pL).toFixed(3),
-      blocked: g.N >= o.minSamples && (p * o.targetR - pL) < 0,
+      p: +p.toFixed(3), n: Math.round(g.N), days: g.days.size,
+      expR: +expR.toFixed(3),
+      // a whole-class block needs a LOT of evidence AND evidence from several days:
+      // one bearish session must never switch the bot off
+      blocked: g.N >= (o.classMinSamples ?? 24) && g.days.size >= (o.classMinDays ?? 3) && expR < (o.classMaxExpR ?? -0.10),
     };
   }
 
@@ -93,7 +100,8 @@ export function buildPerformance(resolved, now = Date.now(), opts = {}) {
 export function bucketOf(perf, sig, cls = 'A') {
   const exact = perf.buckets.find((x) => x.sig === sig && x.cls === cls);
   if (exact && exact.n >= perf.opts.minSamples) return { b: exact, via: cls };
-  const wide = perf.buckets.find((x) => x.sig === sig && x.cls === 'M' && x.n >= perf.opts.minSamples);
+  const wide = perf.buckets.find((x) => x.sig === sig && x.cls === 'M'
+    && x.n >= (perf.opts.fallbackMinSamples ?? 16) && x.days >= (perf.opts.minDays ?? 2));
   if (wide) return { b: wide, via: 'M' };
   return { b: exact || null, via: cls };
 }
@@ -109,7 +117,8 @@ export function learningVerdict(perf, sig, cls = 'A') {
   const { b, via } = bucketOf(perf, sig, cls);
   if (!b) return { skip: false, why: 'نوع جديد ⇒ مفيش تاريخ' };
   const gref = b.pGlobalCls ?? perf.pGlobal;
-  if (b.blocked) return { skip: true, why: `التعلّم: النوع ده ضعيف (نسبة نجاح ${(b.pWin * 100).toFixed(0)}% مقابل ${(gref * 100).toFixed(0)}% عند ${b.n} عينة)` };
+  const margin = via === 'M' ? (perf.opts.fallbackMargin ?? 0.15) : perf.opts.margin;
+  if (b.blocked && b.pWin < b.baseline - margin) return { skip: true, why: `التعلّم: النوع ده ضعيف (نسبة نجاح ${(b.pWin * 100).toFixed(0)}% مقابل ${(gref * 100).toFixed(0)}% عند ${b.n} عينة)` };
   return { skip: false, why: `التعلّم: النوع ده مقبول (${(b.pWin * 100).toFixed(0)}% · ${b.n} عينة${via === 'M' ? ' · من الكسور الأوسع' : ''})` };
 }
 

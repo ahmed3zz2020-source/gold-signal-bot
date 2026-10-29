@@ -123,27 +123,48 @@ export function scanStructures(m15, sw, atr5, atr15, cfg, ctx) {
   // the learning population uses a WIDE window (the whole history), not the 12-bar
   // MSS window: more samples per day is the whole point of the journal
   const lookback = cfg.learningLookback ?? 60;
-  for (const dir of ['long', 'short']) {
-    const lv = dir === 'long' ? sw.highs : sw.lows;
-    for (const s of lv) {
-      if (s.idx < m15.length - 1 - lookback) continue;
-      let j = s.idx + 1;
+  const from = Math.max(0, m15.length - 1 - lookback);
+
+  // the levels the market can break:
+  //   1) the fractal swings (the clean structure levels)
+  //   2) the round numbers (every N dollars — where the stops really sit)
+  //   3) the hand-mapped key levels (4015.4, 4000, 4044.5 ...)
+  const levels = [];
+  for (const s of [...sw.highs, ...sw.lows]) {
+    if (s.idx >= from) levels.push({ level: s.level, from: s.idx + 1, kind: 'swing' });
+  }
+  const step = cfg.roundStep || 5;
+  const px = ctx.price || (m15.length ? m15[m15.length - 1].c : 0);
+  const base = Math.round(px / step) * step;
+  for (let k = -8; k <= 8; k++) {
+    const lv = base + k * step;
+    if (lv > 0) levels.push({ level: lv, from, kind: 'round' });
+  }
+  for (const lv of (cfg.keyLevels || [])) levels.push({ level: lv, from, kind: 'key' });
+
+  const seen = new Set();
+  for (const L of levels) {
+    for (const dir of ['long', 'short']) {
+      let j = Math.max(L.from, from);
       for (; j < m15.length; j++) {
-        const brk = dir === 'long' ? m15[j].c > s.level : m15[j].c < s.level;
+        const brk = dir === 'long' ? m15[j].c > L.level : m15[j].c < L.level;
         if (brk) break;
       }
       if (j >= m15.length) continue;
+      const id = `${dir}|${L.level.toFixed(1)}|${m15[j].t}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
       const bar = m15[j];
       let sweep = false;
-      for (let k = j - 1; k >= Math.max(0, j - 4); k--) {
-        if (dir === 'long' && m15[k].h > s.level) sweep = true;
-        if (dir === 'short' && m15[k].l < s.level) sweep = true;
+      for (let k = j - 1; k >= Math.max(from, j - 4); k--) {
+        if (dir === 'long' && m15[k].h > L.level) sweep = true;
+        if (dir === 'short' && m15[k].l < L.level) sweep = true;
       }
       const entry = bar.c;
-      const risk = unit;
       out.push({
-        dir, level: s.level, ts: bar.t, entry, sl: dir === 'long' ? entry - risk : entry + risk,
-        risk, sweep, atr5, atr15, bias: ctx.bias, mssLevel: s.level, cls: 'M',
+        dir, level: L.level, kind: L.kind, ts: bar.t, entry,
+        sl: dir === 'long' ? entry - unit : entry + unit,
+        risk: unit, targetR: 1, sweep, atr5, atr15, bias: ctx.bias, mssLevel: L.level, cls: 'M',
       });
     }
   }

@@ -11,6 +11,12 @@ const ok = (name, cond, extra = '') => {
 };
 
 const MIN = 60_000;
+/** n records of one result, spread over `days` different days (the multi-day guard). */
+const mk = (n, days, result, sig = 'k', cls = 'A') => {
+  const out = [];
+  for (let i = 0; i < n; i++) out.push({ sig, cls, result, ts: Date.now() - Math.floor(i / days) * 86400000 });
+  return out;
+};
 const bar = (t, o, h, l, c) => ({ t, o, h, l, c });
 
 // ---------------------------------------------------------------- 1. outcome evaluator
@@ -79,10 +85,7 @@ const bar = (t, o, h, l, c) => ({ t, o, h, l, c });
 }
 {
   const now = Date.now();
-  const mixed = [
-    ...Array.from({ length: 20 }, () => ({ sig: 'good', cls: 'A', ts: now, result: 'win' })),
-    ...Array.from({ length: 15 }, () => ({ sig: 'bad', cls: 'A', ts: now, result: 'loss' })),
-  ];
+  const mixed = [...mk(20, 3, 'win', 'good'), ...mk(15, 3, 'loss', 'bad')];
   const p = buildPerformance(mixed, now);
   ok('gate: a demonstrably worse bucket IS blocked', learningVerdict(p, 'bad').skip === true, learningVerdict(p, 'bad').why);
   ok('gate: a better bucket is NOT blocked', learningVerdict(p, 'good').skip === false, learningVerdict(p, 'good').why);
@@ -147,7 +150,7 @@ const bar = (t, o, h, l, c) => ({ t, o, h, l, c });
 }
 {
   const now = Date.now();
-  const recs = Array.from({ length: 14 }, () => ({ sig: 'k', cls: 'M', ts: now, result: 'loss' }));
+  const recs = mk(18, 3, 'loss', 'k', 'M');
   const p = buildPerformance(recs, now);
   const v = learningVerdict(p, 'k', 'A');       // the retest population has no samples yet
   ok('fallback: a thin retest population falls back to the wide structure population', v.skip === true, v.why);
@@ -163,7 +166,7 @@ const bar = (t, o, h, l, c) => ({ t, o, h, l, c });
 // ---------------------------------------------------------------- 8. the class-level block
 {
   const now = Date.now();
-  const recs = Array.from({ length: 14 }, () => ({ sig: 'k', cls: 'A', ts: now, result: 'loss' }));
+  const recs = mk(30, 4, 'loss', 'k', 'A');
   const p = buildPerformance(recs, now);
   const v = learningVerdict(p, 'k', 'A');
   ok('class block: a whole losing population stops that class', v.skip === true, v.why);
@@ -173,6 +176,23 @@ const bar = (t, o, h, l, c) => ({ t, o, h, l, c });
   const recs = Array.from({ length: 14 }, () => ({ sig: 'k', cls: 'A', ts: now, result: 'win' }));
   const p = buildPerformance(recs, now);
   ok('class block: a winning population is not blocked', learningVerdict(p, 'k', 'A').skip === false);
+}
+
+// ---------------------------------------------------------------- 9. THE multi-day guarantee
+{
+  const now = Date.now();
+  const oneDay = Array.from({ length: 40 }, () => ({ sig: 'k', cls: 'A', ts: now, result: 'loss' }));
+  const p = buildPerformance(oneDay, now);
+  ok('multi-day guard: ONE bad day never blocks anything',
+    learningVerdict(p, 'k', 'A').skip === false, learningVerdict(p, 'k', 'A').why);
+  const oneDayM = Array.from({ length: 40 }, () => ({ sig: 'k', cls: 'M', ts: now, result: 'loss' }));
+  const pm = buildPerformance(oneDayM, now);
+  ok('multi-day guard: ONE bad day never blocks the wide population either',
+    learningVerdict(pm, 'k', 'A').skip === false, learningVerdict(pm, 'k', 'A').why);
+  const spreadDays = mk(40, 4, 'loss', 'k', 'A');
+  const ps = buildPerformance(spreadDays, now);
+  ok('multi-day guard: the same data over 4 days DOES block',
+    learningVerdict(ps, 'k', 'A').skip === true, learningVerdict(ps, 'k', 'A').why);
 }
 
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : 'FAILURES: ' + fail}  (${pass} passed)`);

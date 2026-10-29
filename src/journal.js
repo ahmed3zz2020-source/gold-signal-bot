@@ -65,7 +65,7 @@ export function readJsonl(file) {
  */
 export function evaluateOutcome(ev, bars1, opts = {}) {
   const horizonMin = opts.horizonMin ?? HORIZON_MIN;
-  const targetR = opts.targetR ?? TARGET_R;
+  const targetR = ev.targetR ?? opts.targetR ?? TARGET_R;
   const risk = Math.abs(ev.entry - ev.sl);
   if (!risk) return null;
   const end = ev.ts + horizonMin * 60000;
