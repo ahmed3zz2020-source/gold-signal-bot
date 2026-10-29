@@ -29,17 +29,59 @@ MT5_PATH = os.environ.get("MT5_PATH", r"C:\Program Files\MetaTrader 5\terminal64
 
 GOLD = ["XAUUSD", "XAUUSDm", "XAUUSDc", "XAUUSDmicro", "GOLD", "GOLDm", "XAUUSD.f"]
 
+def find_terminals():
+    """Look for terminal64.exe in the usual places (so MT5_PATH can be set)."""
+    roots = [
+        os.path.expandvars(r"%ProgramFiles%"),
+        os.path.expandvars(r"%ProgramFiles(x86)%"),
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs"),
+        os.path.expandvars(r"%APPDATA%"),
+    ]
+    hits = []
+    for root in roots:
+        if not root or not os.path.isdir(root):
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            if "terminal64.exe" in filenames:
+                hits.append(os.path.join(dirpath, "terminal64.exe"))
+            if len(hits) > 12:
+                break
+    return hits
+
+
 print("=" * 68)
 print("1) the terminal")
-if MT5_PATH and os.path.exists(MT5_PATH):
-    ok = mt5.initialize(path=MT5_PATH, login=int(LOGIN or 0), password=PASSWORD,
-                        server=SERVER, timeout=60_000)
-else:
-    ok = mt5.initialize(login=int(LOGIN or 0), password=PASSWORD, server=SERVER,
-                        timeout=60_000)
+candidates = ([MT5_PATH] if MT5_PATH else []) + find_terminals()
+ok = False
+tried = []
+for path in candidates:
+    if not path or not os.path.exists(path):
+        continue
+    tried.append(path)
+    try:
+        if LOGIN and PASSWORD and SERVER:
+            ok = mt5.initialize(path=path, login=int(LOGIN), password=PASSWORD,
+                                server=SERVER, timeout=60_000)
+        else:
+            ok = mt5.initialize(path=path, timeout=60_000)
+    except Exception as e:
+        print("   error while trying", path, ":", e)
+        ok = False
+    if ok:
+        print("   connected via:", path)
+        break
+if not ok:
+    # last resort: whatever terminal the package can find
+    try:
+        ok = mt5.initialize(timeout=60_000)
+    except Exception as e:
+        print("   fallback error:", e)
 if not ok:
     print("   FAILED to connect:", mt5.last_error())
-    print("   - is the MT5 terminal running and logged in?")
+    print("   tried:", tried or "(no terminal64.exe found)")
+    print("   - is the MT5 terminal OPEN right now and logged in?")
+    print("   - if you opened MT5 as Administrator, run this cmd as Administrator too")
+    print("     (right-click the cmd icon > Run as administrator) - they must match.")
     print("   - is 'Allow algorithmic trading' ticked in Tools > Options > Expert Advisors?")
     sys.exit(2)
 print("   terminal version:", mt5.version())
