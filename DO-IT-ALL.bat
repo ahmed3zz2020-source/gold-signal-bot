@@ -11,7 +11,7 @@ REM    5. tests the connection and prints the account + the gold symbol
 REM
 REM  It NEVER places an order.
 REM ============================================================
-setlocal
+setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
 echo.
@@ -86,7 +86,17 @@ if not defined MT5_EXE (
 )
 if not defined MT5_EXE (
   echo   MetaTrader 5 was not found on this computer.
+  echo.
+  set /p "ANSWER=   Install it now? (Y/N) "
+  if /i "!ANSWER!"=="Y" (
+    echo.
+    call "%~dp0INSTALL-MT5.bat"
+    echo.
+    echo   After the installation finishes, run DO-IT-ALL.bat again.
+    goto :fail
+  )
   echo   Install it from the Exness app (the account screen - the MT5 button),
+  echo   or from: https://www.metatrader5.com/en
   echo   then run this file again.
   goto :fail
 )
