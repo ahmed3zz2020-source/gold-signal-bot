@@ -86,8 +86,6 @@ ok("exactly 2R to the second target is accepted", passed, why)
 passed, why, _ = validate_signal(sig(entry=4030.0, sl=4025.0, tps=[4034.9, 4035.5, 4040.0]), **BASE)
 ok("just under 2R is refused", not passed, why)
 
-print(f"\n{'ALL CHECKS PASSED' if FAIL == 0 else 'FAILURES: %d' % FAIL}  ({PASS} passed)")
-sys.exit(0 if FAIL == 0 else 1)
 
 # ---------------------------------------------------------------- the self-test signal
 import importlib.util as _ilu
@@ -103,3 +101,6 @@ try:
     ok("selftest: the plan is a BUY with the volume from the balance", pl2 and pl2.action == "BUY", str(pl2))
 except Exception as _e:
     ok("selftest: the bridge module loads", False, str(_e))
+
+print(f"\n{'ALL CHECKS PASSED' if FAIL == 0 else 'FAILURES: %d' % FAIL}  ({PASS} passed)")
+sys.exit(0 if FAIL == 0 else 1)
