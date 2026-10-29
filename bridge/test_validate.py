@@ -88,3 +88,18 @@ ok("just under 2R is refused", not passed, why)
 
 print(f"\n{'ALL CHECKS PASSED' if FAIL == 0 else 'FAILURES: %d' % FAIL}  ({PASS} passed)")
 sys.exit(0 if FAIL == 0 else 1)
+
+# ---------------------------------------------------------------- the self-test signal
+import importlib.util as _ilu
+_spec = _ilu.spec_from_file_location("bridge_mod", os.path.join(os.path.dirname(os.path.abspath(__file__)), "mt5_bridge.py"))
+try:
+    _m = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_m)
+    _sig = _m.synthetic_signal(4000.0, "long")
+    ok("selftest: the synthetic signal is a valid long", _sig["dir"] == "long" and _sig["entry"] == 4000.0)
+    ok("selftest: its RR clears the gate (2R/3R/4R)",
+       all(r >= 2 for r in _sig["rrs"][1:]), str(_sig["rrs"]))
+    p2, w2, pl2 = validate_signal(_sig, **{**BASE, "live_price": 4000.0, "balance": 1000.0})
+    ok("selftest: the bridge validates it and builds a plan", p2 and pl2 is not None, w2)
+    ok("selftest: the plan is a BUY with the volume from the balance", pl2 and pl2.action == "BUY", str(pl2))
+except Exception as _e:
+    ok("selftest: the bridge module loads", False, str(_e))

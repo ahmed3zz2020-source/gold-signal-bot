@@ -44,6 +44,7 @@ MAX_TRADES_PER_DAY = int(os.environ.get("MAX_TRADES_PER_DAY", "2"))
 MAX_PRICE_DRIFT = float(os.environ.get("MAX_PRICE_DRIFT", "2.0"))
 MAX_SIGNAL_AGE_S = int(os.environ.get("MAX_SIGNAL_AGE_S", "120"))
 DRY_RUN = os.environ.get("DRY_RUN", "1") not in ("0", "false", "False")
+SELFTEST_SIGNAL = os.environ.get("SELFTEST_SIGNAL", "0") not in ("0", "false", "False")
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "5"))
 LOG_FILE = os.environ.get("BRIDGE_LOG", "bridge.jsonl")
 
@@ -177,8 +178,22 @@ def send_order(mt5, plan, spec):
     return ok
 
 
+def synthetic_signal(price, direction="long"):
+    """A fake A signal at the live price — used by SELFTEST_SIGNAL=1 to prove the whole
+    path (validation -> lot size -> plan) without the engine and without any order."""
+    if direction == "long":
+        entry, sl, tps = price, price - 5.0, [price + 10.0, price + 15.0, price + 20.0]
+    else:
+        entry, sl, tps = price, price + 5.0, [price - 10.0, price - 15.0, price - 20.0]
+    risk = abs(entry - sl)
+    return {"id": "selftest", "dir": direction, "grade": "A", "entry": entry, "sl": sl,
+            "tps": tps, "rrs": [abs(t - entry) / risk for t in tps],
+            "ts": int(time.time() * 1000), "expiresTs": int(time.time() * 1000) + 120000,
+            "symbol": MT5_SYMBOL}
+
+
 def main():
-    log("bridge_start", engine=ENGINE_URL, dry_run=DRY_RUN, symbol=MT5_SYMBOL,
+    log("bridge_start", engine=ENGINE_URL, dry_run=DRY_RUN, selftest=SELFTEST_SIGNAL, symbol=MT5_SYMBOL,
         server=MT5_SERVER, pid=os.getpid())
     mt5 = None
     spec = None
@@ -213,6 +228,12 @@ def main():
                     volume_step=spec["volume_step"])
 
             sig = fetch_signal()
+            if sig is None and SELFTEST_SIGNAL:
+                t0 = mt5.symbol_info_tick(MT5_SYMBOL)
+                if t0 and time.time() - _state.get("selftest_at", 0) > 60:
+                    _state["selftest_at"] = time.time()
+                    sig = synthetic_signal(t0.ask if True else t0.ask)
+                    log("selftest_signal", price=sig["entry"], note="محاكاة — مفيش أي أمر حقيقي")
             if sig:
                 ok, why, plan = validate_signal(
                     sig, live_price=(mt5.symbol_info_tick(MT5_SYMBOL).ask
