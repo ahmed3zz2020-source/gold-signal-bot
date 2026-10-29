@@ -5,8 +5,8 @@ REM
 REM  It pulls the signals from the engine (ENGINE_URL) and, after
 REM  checking every rule again locally, sends the order to Exness.
 REM
-REM  ⛔ LEAVE THIS WINDOW OPEN. Closing it stops the bridge.
-REM  ⛔ DRY_RUN=1 in the .env => it only LOGS what it would do (safe).
+REM   LEAVE THIS WINDOW OPEN. Closing it stops the bridge.
+REM   DRY_RUN=1 in the .env => it only LOGS what it would do (safe).
 REM     DRY_RUN=0              => it sends REAL orders.
 REM ============================================================
 setlocal

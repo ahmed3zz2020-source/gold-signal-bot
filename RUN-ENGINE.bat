@@ -9,8 +9,8 @@ REM  Then it starts the engine: it watches gold and sends the alerts
 REM  to Telegram. It also opens the API on port 8080 so the bridge
 REM  (the same folder) can pull the signals from it.
 REM
-REM  ⛔ LEAVE THIS WINDOW OPEN. Closing it stops the engine.
-REM  ⛔ The first 4-5 hours it only warms up (it needs 20 closed
+REM   LEAVE THIS WINDOW OPEN. Closing it stops the engine.
+REM   The first 4-5 hours it only warms up (it needs 20 closed
 REM     15-minute candles before it can read the structure).
 REM ============================================================
 setlocal

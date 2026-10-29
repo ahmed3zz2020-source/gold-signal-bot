@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  DO-IT-ALL.bat  —  one click, the whole setup
+REM  DO-IT-ALL.bat  -  one click, the whole setup
 REM
 REM  It does EVERYTHING by itself:
 REM    1. finds your MetaTrader 5 (and writes its path into the .env)
@@ -50,8 +50,8 @@ echo   done
 REM ---------- 3) the password -------------------------------------------
 echo.
 echo [3/5] the Exness password...
-findstr /c:"your-password-here" ".env" >nul
-if not errorlevel 1 (
+powershell -NoProfile -Command "$c = Get-Content '.env' -Raw -ErrorAction SilentlyContinue; if($c -match 'your-password-here'){ exit 1 } else { exit 0 }" >nul 2>&1
+if errorlevel 1 (
   echo   Notepad is opening. Put your Exness password on the line
   echo     MT5_PASSWORD=...
   echo   then press Ctrl+S and close Notepad.

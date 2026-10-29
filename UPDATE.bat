@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  UPDATE.bat  —  pulls the LATEST version into this folder.
+REM  UPDATE.bat  -  pulls the LATEST version into this folder.
 REM
 REM  It tries several download mirrors (campus networks sometimes block
 REM  one of them) and uses the first one that works.

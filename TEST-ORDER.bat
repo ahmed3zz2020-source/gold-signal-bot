@@ -6,9 +6,9 @@ REM  This is the end-to-end proof on the REAL account:
 REM  connect -> read the account -> send a 0.01 lot order with a stop
 REM  and a target -> wait 10 seconds -> close it -> print what happened.
 REM
-REM  ⛔ It is a REAL order. It costs the spread twice (~60 USC = $0.06)
+REM   It is a REAL order. It costs the spread twice (~60 USC = $0.06)
 REM     and, if gold moves against you, up to the stop (200 USC = $2).
-REM  ⛔ It uses its own magic number, so it does NOT touch the daily counters.
+REM   It uses its own magic number, so it does NOT touch the daily counters.
 REM
 REM  Run DO-IT-ALL.bat and BRIDGE-SELFTEST.bat first.
 REM ============================================================
