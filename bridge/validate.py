@@ -31,7 +31,11 @@ def compute_volume(balance, risk_pct, stop_points, contract_size, point_value_pe
                    min_vol=0.01, max_vol=100.0, step=0.01):
     """Lots for a fixed fractional risk.
     contract_size = ounces per lot (100 for XAUUSD) · point_value_per_lot = USD per point
-    per lot (100 for XAUUSD: 1 point = 1 USD)."""
+    per lot (100 for XAUUSD: 1 point = 1 USD).
+
+    ⛔ FAIL-CLOSED: if the broker's minimum lot is BIGGER than what the risk allows,
+       we return 0 (= no trade). We never round the size UP to the minimum, because
+       that would blow through the 0.5% risk cap (Exness gold: min lot 1.00!)."""
     if stop_points <= 0 or balance <= 0:
         return 0.0
     risk_money = balance * risk_pct / 100.0
@@ -39,8 +43,12 @@ def compute_volume(balance, risk_pct, stop_points, contract_size, point_value_pe
     if per_lot_risk <= 0:
         return 0.0
     vol = risk_money / per_lot_risk
-    vol = max(min_vol, min(max_vol, vol))
-    vol = int(vol / step) * step          # never exceed the step (round DOWN = safer)
+    if vol < min_vol:
+        return 0.0                      # the minimum lot risks more than we allow
+    vol = min(max_vol, vol)
+    vol = int((vol + 1e-9) / step) * step  # never exceed the step (round DOWN = safer)
+    if vol < min_vol:
+        return 0.0
     return round(vol, 2)
 
 

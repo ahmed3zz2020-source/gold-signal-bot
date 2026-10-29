@@ -29,6 +29,10 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from validate import validate_signal  # noqa: E402
+import mt5_conn  # noqa: E402
+
+# the .env file (if any) must be loaded BEFORE the constants below are read
+mt5_conn.load_dotenv()
 
 ENGINE_URL = os.environ.get("ENGINE_URL", "http://127.0.0.1:8080").rstrip("/")
 BRIDGE_TOKEN = os.environ.get("BRIDGE_TOKEN", "")
@@ -87,24 +91,21 @@ def fetch_signal():
 
 # ------------------------------------------------------------------ MT5
 def mt5_connect():
-    try:
-        import MetaTrader5 as mt5
-    except ImportError:
-        log("mt5_missing", hint="pip install MetaTrader5 (Windows only)")
-        return None, None
-    ok = False
-    if MT5_PATH and os.path.exists(MT5_PATH):
-        ok = mt5.initialize(path=MT5_PATH, login=int(MT5_LOGIN or 0),
-                            password=MT5_PASSWORD, server=MT5_SERVER, timeout=60_000)
-    else:
-        ok = mt5.initialize(login=int(MT5_LOGIN or 0), password=MT5_PASSWORD,
-                            server=MT5_SERVER, timeout=60_000)
-    if not ok:
-        log("mt5_init_failed", error=mt5.last_error())
-        return None, mt5
-    log("mt5_connected", server=MT5_SERVER, symbol=MT5_SYMBOL,
-        account=mt5.account_info().login if mt5.account_info() else None)
-    return mt5, mt5
+    """Connect to MT5 through mt5_conn (attach first, login only with a full triple,
+    and verify the account). Returns (mt5_module, connection_info)."""
+    mt5, conn = mt5_conn.connect(verbose=False)
+    if not conn.get("connected"):
+        log("mt5_init_failed", problems=conn.get("problems"), last_error=None)
+        return None, conn
+    if conn.get("mismatch"):
+        log("mt5_wrong_account", login=conn.get("login"), server=conn.get("server"),
+            expected_login=conn.get("expected_login"),
+            expected_server=conn.get("expected_server"), problems=conn.get("problems"))
+        return mt5, conn
+    log("mt5_connected", mode=conn.get("mode"), server=conn.get("server"),
+        login=conn.get("login"), symbol=MT5_SYMBOL, balance=conn.get("balance"),
+        trade_allowed=conn.get("trade_allowed"))
+    return mt5, conn
 
 
 GOLD_CANDIDATES = ["XAUUSD", "XAUUSDm", "XAUUSDc", "XAUUSDmicro", "GOLD", "GOLDm", "XAUUSD.f"]
@@ -203,6 +204,18 @@ def main():
                 mt5, mod = mt5_connect()
                 if mt5 is None:
                     time.sleep(10); continue
+                if mod.get("mismatch"):
+                    # ⛔ fail-closed: we are on a different account than configured -> no trade
+                    log("blocked_wrong_account", login=mod.get("login"),
+                        server=mod.get("server"), expected_login=mod.get("expected_login"),
+                        expected_server=mod.get("expected_server"),
+                        note="الحساب مش مطابق — trading is blocked until it is fixed")
+                    try:
+                        mt5.shutdown()
+                    except Exception:
+                        pass
+                    mt5 = None
+                    time.sleep(30); continue
                 spec = symbol_spec(mt5)
                 if spec is None:
                     log("no_symbol_spec"); time.sleep(30); continue
@@ -228,6 +241,12 @@ def main():
                     volume_step=spec["volume_step"])
 
             sig = fetch_signal()
+            if balance <= 0:
+                if not _state.get("zero_balance_logged"):
+                    _state["zero_balance_logged"] = True
+                    log("blocked_zero_balance", balance=balance,
+                        note="الرصيد صفر — مفيش صفقة تقدر تتعمل (0.5% من صفر = صفر)")
+                sig = None
             if sig is None and SELFTEST_SIGNAL:
                 t0 = mt5.symbol_info_tick(MT5_SYMBOL)
                 if t0 and time.time() - _state.get("selftest_at", 0) > 60:
@@ -248,16 +267,27 @@ def main():
                 log("signal", ok=ok, why=why, sig_id=sig.get("id"), grade=sig.get("grade"),
                     dir=sig.get("dir"), entry=sig.get("entry"))
                 if ok and plan:
-                    plan.volume = max(spec["volume_min"],
-                                      int(plan.volume / spec["volume_step"]) * spec["volume_step"])
-                    if DRY_RUN:
-                        log("dry_run_trade", plan=plan.as_dict())
-                        _state["trades_today"] += 1
+                    # ⛔ never round the size UP to the broker's minimum lot — that would
+                    # blow through the 0.5% risk cap. Round DOWN to the step only, and
+                    # refuse the trade when the result is below the broker's minimum.
+                    step = spec["volume_step"] or 0.01
+                    vol = int((plan.volume + 1e-9) / step) * step
+                    if vol < spec["volume_min"] - 1e-9:
+                        log("lot_below_broker_minimum", computed=plan.volume,
+                            rounded=round(vol, 4), volume_min=spec["volume_min"],
+                            note="الحجم المسموح smaller than the broker minimum -> NO TRADE")
+                        ok, why, plan = False, "الحجم أقل من أقل لوت مسموح عند البروكر", None
                     else:
-                        if send_order(mt5, plan, spec):
+                        plan.volume = round(vol, 4)
+                    if ok and plan:
+                        if DRY_RUN:
+                            log("dry_run_trade", plan=plan.as_dict())
                             _state["trades_today"] += 1
                         else:
-                            log("order_failed_no_fallback")
+                            if send_order(mt5, plan, spec):
+                                _state["trades_today"] += 1
+                            else:
+                                log("order_failed_no_fallback")
             time.sleep(POLL_SECONDS)
         except KeyboardInterrupt:
             log("bridge_stop"); break

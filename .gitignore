@@ -6,3 +6,6 @@ bot.log
 *.zip
 journal.jsonl
 outcomes.jsonl
+
+__pycache__/
+*.pyc

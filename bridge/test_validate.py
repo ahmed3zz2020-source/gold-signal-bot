@@ -50,7 +50,17 @@ ok("a 10-point stop gives 0.05 lots", abs(v - 0.05) < 1e-9, f"volume={v}")
 v = compute_volume(10000, 0.5, 1, 100, 100, min_vol=0.01, step=0.01)
 ok("a 1-point stop gives 0.50 lots", abs(v - 0.50) < 1e-9, f"volume={v}")
 v = compute_volume(10000, 0.5, 60, 100, 100, min_vol=0.01, step=0.01)
-ok("a 60-point stop is clamped to the minimum 0.01 lot", abs(v - 0.01) < 1e-9, f"volume={v}")
+ok("a 60-point stop risks more than 0.5% -> NO lot (never round UP to the minimum)",
+   v == 0.0, f"volume={v}")
+# ⛔ regression (2026-10-29): the broker minimum must never push the size above the cap.
+#    Exness gold has volume_min = 1.00 lot; the old code clamped 0.02 up to 1.00 = a 50x risk.
+v = compute_volume(10000, 0.5, 10, 100, 100, min_vol=1.00, step=0.01)
+ok("a broker minimum of 1.00 lot REFUSES the trade (never rounds up)", v == 0.0, f"volume={v}")
+v = compute_volume(250000, 0.5, 10, 100, 100, min_vol=1.00, step=0.01)
+ok("with enough balance the 1.00-lot minimum is used", abs(v - 1.25) < 1e-9, f"volume={v}")
+passed, why, _ = validate_signal(sig(), **{**BASE, "min_vol": 1.00})
+ok("a signal whose lot is below the broker minimum is refused",
+   not passed and "حجم" in why, why)
 
 # --- the refusals
 passed, why, _ = validate_signal(sig(ts=NOW - 300000), **BASE)
