@@ -140,7 +140,7 @@ def symbol_spec(mt5):
     tick_value = float(getattr(info, "trade_tick_value", 1.0) or 1.0)
     tick_size = float(getattr(info, "trade_tick_size", 0.01) or 0.01)
     point_value_per_lot = tick_value * (1.0 / tick_size) if tick_size else 100.0
-    return {"contract": contract, "point_value": point_value_per_lot,
+    return {"symbol": MT5_SYMBOL, "contract": contract, "point_value": point_value_per_lot,
             "volume_min": float(getattr(info, "volume_min", 0.01) or 0.01),
             "volume_step": float(getattr(info, "volume_step", 0.01) or 0.01),
             "digits": int(getattr(info, "digits", 2) or 2)}
@@ -200,6 +200,17 @@ def main():
             n_open = len(positions) if positions else 0
             acc = mt5.account_info()
             balance = acc.balance if acc else ACCOUNT_BALANCE
+            if acc and not _state.get("logged_balance"):
+                _state["logged_balance"] = True
+                cur = getattr(acc, "currency", "")
+                cent = cur.upper().endswith("C") and len(cur.upper()) == 3
+                log("account", login=acc.login, currency=cur, balance=balance,
+                    cent_account=cent,
+                    note=("الرصيد والسعر بالـsnt (cents) — عشان كده الحساب 0.5% بيتحسب على "
+                          "نفس العملة، واللوت بيتحسب من tick_value اللي في الـterminal") if cent else "حساب USD عادي")
+                log("spec", symbol=spec["symbol"], contract_size=spec["contract"],
+                    point_value_per_lot=spec["point_value"], volume_min=spec["volume_min"],
+                    volume_step=spec["volume_step"])
 
             sig = fetch_signal()
             if sig:
