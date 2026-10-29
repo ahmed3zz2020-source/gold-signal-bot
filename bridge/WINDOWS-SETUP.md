@@ -13,7 +13,7 @@ py -m venv .venv
 ```
 
 ## ٣) حطّ المتغيرات
-انسخ `.env.example`的文件 إلى `.env` واملاه، أو صدّر المتغيرات في PowerShell:
+انسخ ملف `.env.example` إلى `.env` واملاه، أو صدّر المتغيرات في PowerShell:
 ```powershell
 $env:MT5_LOGIN="458089169"; $env:MT5_PASSWORD="..."; $env:MT5_SERVER="Exness-MT5Real50"
 $env:ENGINE_URL="http://SEU-BOT:8099"; $env:BRIDGE_TOKEN="..."; $env:DRY_RUN="1"
