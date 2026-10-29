@@ -8,6 +8,7 @@ import { analyze, newsBlackout } from './strategy.js';
 import { sendMessage, sendVoice, getUpdates, formatAlert, formatWatch, formatMap, formatSummary, formatTradeUpdate, formatStatus, formatLevels } from './telegram.js';
 import { appendJsonl, readJsonl, evaluateOutcome, signature, HORIZON_MIN } from './journal.js';
 import { buildPerformance, learningVerdict, rankCandidates } from './performance.js';
+import { startApi } from './api.js';
 
 const CFG = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 const TOKEN = process.env.TELEGRAM_TOKEN || process.env.TELEGRAM_BOT_TOKEN || CFG.telegram.token;
@@ -101,6 +102,8 @@ const OUTCOMES_FILE = process.env.OUTCOMES_FILE || path.join(process.cwd(), 'out
 const LC = { ...(CFG.learning || {}) };
 let perf = { pGlobal: LC.priorP ?? 0.4, n: 0, rawN: 0, buckets: [], opts: LC };
 const journalSeen = new Set();
+let pendingSignal = null;      // the next signal the bridge may take (published once)
+let killed = false;             // the /kill switch
 let lastResolve = 0, lastPerf = 0;
 
 const median = (a) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
@@ -245,7 +248,7 @@ async function evaluate() {
   if (state.dailyR <= capR) {
     if (!state.dayStopped) {
       state.dayStopped = true; save();
-      notify('\u26d4\u261d\u0648\u0635\u0644\u0646\u0627 \u0644\u062d\u062f \u0627\u0644\u062e\u0633\u0627\u0631\u0629 \u0627\u0644\u064a\u0648\u0645\u064a \u2014 \u0648\u0642\u0641 \u0627\u0644\u062a\u062f\u0627\u0648\u0644 \u0644\u0644\u064a\u0648\u0645');
+      notify('⛔ وصلنا لحد الخسارة اليومي (1.5%) — وقف التداول لليوم');
     }
     return;
   }
@@ -264,6 +267,7 @@ async function evaluate() {
     // SOFT GATE (the learning): a setup type that is demonstrably worse than average
     // gets skipped. It can never loosen anything — it only removes.
     const verdict = learningVerdict(perf, c.sig, c.cls || 'A');
+    if (killed) { console.log('[kill] engine stopped — no signals published'); break; }
     if (verdict.skip) {
       console.log(`[learn] skipped ${c.dir} ${c.entry.toFixed(2)} — ${verdict.why}`);
       continue;
@@ -277,6 +281,11 @@ async function evaluate() {
     const news = cal.filter((e) => e.impact === 'High' && e.date &&
       Math.abs(new Date(e.date).getTime() - now()) < 3 * 3600e3)
       .map((e) => `${e.title} ${new Date(e.date).toISOString().slice(11, 16)}Z`).join(' · ');
+    pendingSignal = {
+      id, dir: c.dir, grade: c.grade, entry: c.entry, sl: c.sl, tps: c.tps, rrs: c.rrs,
+      risk: Math.abs(c.entry - c.sl), blended: c.blended, mssLevel: c.mssLevel,
+      ts: now(), expiresTs: now() + 120000, symbol: CFG.bridge?.symbol || 'XAUUSD',
+    };
     await notify(formatAlert(c, {
       accountUsd: CFG.risk.accountUsd, riskPct: CFG.risk.perTradePct,
       timeText: `${t.hhmm} القاهرة`,
@@ -348,6 +357,27 @@ setInterval(tick, CFG.poll.tickSeconds * 1000);
 setInterval(() => { evaluate().catch((e) => console.error('[eval]', e.message)); }, CFG.poll.evalSeconds * 1000);
 setInterval(() => { save(); }, 60000);
 setInterval(() => { commands(); }, 15000);
+if (process.env.BRIDGE_TOKEN) {
+  startApi({
+    port: +(process.env.PORT || 8080),
+    token: process.env.BRIDGE_TOKEN,
+    getState: () => ({
+      price: ctxPrice(), bias: lastBias(), trades: state.trades.length, dailyR: state.dailyR,
+      day: state.day, killed, pendingSignal: pendingSignal ? pendingSignal.id : null,
+    }),
+    getSignal: () => {
+      if (killed) return null;
+      if (!pendingSignal) return null;
+      if (pendingSignal.expiresTs < Date.now()) { pendingSignal = null; return null; }
+      const s = pendingSignal; pendingSignal = null;   // one shot: the bridge takes it or it expires
+      return s;
+    },
+    getPerf: () => perf,
+    onKill: async () => { killed = true; await notify('⛔ إيقاف التداول — المحرك متوقف والأوامر الجديدة مرفوضة'); },
+  });
+}
+function ctxPrice() { try { const a = analyze(builder, CFG, now()); return a.ok ? a.ctx.price : null; } catch { return null; } }
+function lastBias() { try { const a = analyze(builder, CFG, now()); return a.ok ? a.ctx.bias : null; } catch { return null; } }
 setTimeout(() => { try { resolveOutcomes(); } catch (e) { console.error('[learn]', e.message); } }, 60 * 1000);  // resolve the backlog at boot
 setInterval(() => { resolveOutcomes(); }, 10 * 60000);          // judge old events
 setInterval(() => { if (now() - lastPerf > (LC.refreshMin ?? 30) * 60000) refreshPerf(); }, 5 * 60000);
