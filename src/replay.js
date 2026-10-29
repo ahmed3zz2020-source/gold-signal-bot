@@ -25,6 +25,14 @@ for (const line of fs.readFileSync(file, 'utf8').split('\n').slice(1)) {
 rows.sort((a, b) => a.ts - b.ts);
 console.log(`ticks ${rows.length}  ${new Date(rows[0].ts).toISOString()} -> ${new Date(rows[rows.length - 1].ts).toISOString()}`);
 
+// ⛔ FAIL-CLOSED: a replay over a short file proves nothing. Say so instead of PASSing.
+const MIN_TICKS = 1000;
+if (rows.length < MIN_TICKS) {
+  console.log(`\nVERDICT: INCONCLUSIVE — only ${rows.length} ticks (need >= ${MIN_TICKS}).`);
+  console.log('A replay over a short file cannot prove anything — the gate needs a real session of ticks.');
+  process.exit(2);
+}
+
 // minute-by-minute replay: at each minute only CLOSED bars are exposed to the engine
 const firstMin = Math.floor(rows[0].ts / 60000) * 60000;
 const lastMin = Math.floor(rows[rows.length - 1].ts / 60000) * 60000;

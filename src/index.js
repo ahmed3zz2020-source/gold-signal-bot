@@ -201,11 +201,40 @@ async function getCalendar() {
   return calCache.list;
 }
 
+/** The session stats from the bars themselves (the summary must not depend on the
+ *  engine having enough bars to run the gate). */
+function sessionStats() {
+  const endAt = dayStartUtc(CFG.session.tz, now()) + toMin(CFG.session.endCairo) * 60000;
+  const startAt = dayStartUtc(CFG.session.tz, now());
+  const bars = builder.series(1).filter((b) => b.t >= startAt && b.t < endAt);
+  const closed15 = builder.series(15).filter((b) => b.t + 15 * 60000 <= endAt).slice(-1)[0];
+  const live = builder.series(1).slice(-1)[0];
+  return {
+    close: closed15 ? closed15.c : (live ? live.c : null),
+    dayHigh: bars.length ? Math.max(...bars.map((b) => b.h)) : null,
+    dayLow: bars.length ? Math.min(...bars.map((b) => b.l)) : null,
+  };
+}
+
 async function evaluate() {
+  rolloverDay();
+  const st0 = sessionStats();
+  // the daily summary goes out regardless of the gate's state
+  if (!state.dailySummarySent && toMin(l().hhmm) >= toMin(CFG.session.endCairo)) {
+    state.dailySummarySent = true;
+    save();            // persist the flag BEFORE sending: a restart can never re-send it
+    if (!state.sessionEndAt) state.sessionEndAt = now();
+    const wins = state.trades.filter((x) => x.state !== 'stopped').length;
+    const losses = state.trades.filter((x) => x.state === 'stopped').length;
+    notify(formatSummary({ price: st0.close, dayHigh: st0.dayHigh, dayLow: st0.dayLow }, {
+      day: state.day, close: st0.close,
+      trades: state.trades.length, wins, losses,
+      r: state.dailyR, rPct: (state.dailyR * CFG.risk.perTradePct).toFixed(2),
+    })).catch(() => {});
+  }
   const res = analyze(builder, CFG, now());
   if (!res.ok) return;
   const { ctx } = res;
-  rolloverDay();
   checkOpenTrades(ctx.price);
 
   // journal EVERY structure first (history is the learning's raw material) — this happens
@@ -219,22 +248,6 @@ async function evaluate() {
     await notify(formatMap(ctx, mapExtras(ctx)));
     save();            // persist immediately so a restart does NOT resend the map
   }
-  if (!state.dailySummarySent && toMin(t.hhmm) >= toMin(CFG.session.endCairo)) {
-    state.dailySummarySent = true;
-    if (!state.sessionEndAt) state.sessionEndAt = now();   // stamp the session close
-    const wins = state.trades.filter((x) => x.state !== 'stopped').length;
-    const losses = state.trades.filter((x) => x.state === 'stopped').length;
-    // the session's official close = the last M15 that closed inside the session window
-    const endAt = dayStartUtc(CFG.session.tz, now()) + toMin(CFG.session.endCairo) * 60000;
-    const closed15 = builder.series(15).filter((x) => x.t + 15 * 60000 <= endAt).slice(-1)[0];
-    notify(formatSummary(ctx, {
-      day: state.day, close: closed15 ? closed15.c : ctx.price,
-      trades: state.trades.length, wins, losses,
-      r: state.dailyR, rPct: (state.dailyR * CFG.risk.perTradePct).toFixed(2),
-    })).catch(() => {});
-    save();
-  }
-
   const cal = await getCalendar();
   const nb = newsBlackout(cal, now(), CFG);
   if (nb.blocked) return;
