@@ -9,3 +9,4 @@ outcomes.jsonl
 
 __pycache__/
 *.pyc
+bridge-report.txt

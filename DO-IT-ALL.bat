@@ -67,8 +67,12 @@ REM ---------- 5) the connection test -------------------------------------
 echo.
 echo [5/5] testing the connection (read-only, NO orders)...
 echo ---------------------------------------------------------------
-".venv\Scripts\python.exe" bridge\test_connection.py
+".venv\Scripts\python.exe" bridge\test_connection.py > "bridge-report.txt" 2>&1
+type "bridge-report.txt"
 echo ---------------------------------------------------------------
+echo.
+echo The same output is saved in bridge-report.txt and opens in Notepad.
+start notepad "bridge-report.txt"
 echo.
 echo Send me the output above (a photo of this window is perfect).
 pause

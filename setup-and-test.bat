@@ -38,8 +38,11 @@ if not exist ".env" (
   echo   NOTE: no .env found. Run make-env.bat once (it asks for the Exness
   echo   password and saves it LOCALLY) so the script can log in by itself.
 )
-".venv\Scripts\python.exe" bridge\test_connection.py || goto :fail
-
+".venv\Scripts\python.exe" bridge\test_connection.py > "bridge-report.txt" 2>&1
+type "bridge-report.txt"
+echo.
+echo   (the same output is saved in bridge-report.txt and opens in Notepad)
+start notepad "bridge-report.txt"
 echo.
 echo ALL DONE. Send me the output above.
 pause
