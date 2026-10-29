@@ -1,87 +1,79 @@
 @echo off
 REM ============================================================
 REM  INSTALL-MT5.bat  -  downloads MetaTrader 5, installs it, opens it.
-REM
-REM  One click. It:
-REM    1. downloads the official MetaQuotes installer (24 MB)
-REM    2. runs it  (you press: Next - Next - Finish)
-REM    3. waits for MetaTrader 5 to appear, writes its path into the .env
-REM    4. opens MetaTrader 5 so you can log in
-REM
-REM  After you log in: run DO-IT-ALL.bat
+REM  Everything it does is written to install-mt5.log
 REM ============================================================
-setlocal EnableDelayedExpansion
+setlocal
 cd /d "%~dp0"
-
-set "URL=https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
-set "EXE=%~dp0mt5setup.exe"
+title Install MetaTrader 5
 
 echo.
 echo ============================================================
-echo   installing MetaTrader 5
+echo   INSTALLING META TRADER 5
 echo ============================================================
 echo.
-
-if not exist "%EXE%" (
-  echo   downloading (24 MB, one time)...
-  where curl >nul 2>&1
-  if not errorlevel 1 (
-    curl -L --max-time 900 -o "%EXE%" "%URL%"
-  ) else (
-    powershell -NoProfile -Command "Invoke-WebRequest -Uri '%URL%' -OutFile '%EXE%'"
-  )
-)
-
-if not exist "%EXE%" (
-  echo.
-  echo   the download failed. Open this link in your browser instead:
-  echo     %URL%
-  echo   install it, then run DO-IT-ALL.bat again.
-  echo.
-  pause
-  exit /b 1
-)
-
-echo   running the installer...
-start "" "%EXE%"
+echo   (if this window closes by itself, open install-mt5.log
+echo    and send me that file)
 echo.
-echo   ---------------------------------------------------------------
-echo    In the installer press:  Next  -  Next  -  Finish
-echo   ---------------------------------------------------------------
+
+if exist "install-mt5.log" del /q "install-mt5.log" >nul 2>&1
+echo started %date% %time% >> "install-mt5.log"
+
+REM ---------- 1) already installed? ----------
+set "MT5_EXE="
+if exist "%LOCALAPPDATA%\MetaTrader 5\terminal64.exe" set "MT5_EXE=%LOCALAPPDATA%\MetaTrader 5\terminal64.exe"
+if not defined MT5_EXE if exist "C:\Program Files\MetaTrader 5\terminal64.exe" set "MT5_EXE=C:\Program Files\MetaTrader 5\terminal64.exe"
+if not defined MT5_EXE if exist "%APPDATA%\MetaTrader 5\terminal64.exe" set "MT5_EXE=%APPDATA%\MetaTrader 5\terminal64.exe"
+
+if defined MT5_EXE goto :found
+
+REM ---------- 2) download ----------
+echo   downloading MetaTrader 5 (24 MB)...
+echo downloading >> "install-mt5.log"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; try { Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile 'mt5setup.exe' -UseBasicParsing; Write-Host 'downloaded OK' } catch { Write-Host ('FAILED: ' + $_.Exception.Message) }" 2>&1 | findstr /i "OK FAILED" >> "install-mt5.log"
+
+if not exist "mt5setup.exe" goto :fail
+echo   downloaded.
+echo downloaded >> "install-mt5.log"
+
+REM ---------- 3) run the installer ----------
 echo.
-echo   waiting for MetaTrader 5 to be installed (up to 8 minutes)...
+echo   the installer is opening now.
+echo   press:  Next  -  Next  -  Finish
+echo.
+start "" "mt5setup.exe"
+echo installer started >> "install-mt5.log"
+echo   waiting 30 seconds for the installer...
+timeout /t 30 /nobreak >nul
 
-set "FOUND="
-for /l %%i in (1,1,48) do (
-  if not defined FOUND (
-    if exist "%LOCALAPPDATA%\MetaTrader 5\terminal64.exe" set "FOUND=%LOCALAPPDATA%\MetaTrader 5\terminal64.exe"
-    if not defined FOUND if exist "C:\Program Files\MetaTrader 5\terminal64.exe" set "FOUND=C:\Program Files\MetaTrader 5\terminal64.exe"
-    if not defined FOUND if exist "%APPDATA%\MetaTrader 5\terminal64.exe" set "FOUND=%APPDATA%\MetaTrader 5\terminal64.exe"
-    if not defined FOUND (
-      for /f "delims=" %%P in ('where /r "%LOCALAPPDATA%" terminal64.exe 2^>nul') do (
-        if not defined FOUND set "FOUND=%%P"
-      )
-    )
-    if not defined FOUND timeout /t 10 /nobreak >nul
-  )
-)
+REM ---------- 4) look for it again ----------
+set "MT5_EXE="
+if exist "%LOCALAPPDATA%\MetaTrader 5\terminal64.exe" set "MT5_EXE=%LOCALAPPDATA%\MetaTrader 5\terminal64.exe"
+if not defined MT5_EXE if exist "C:\Program Files\MetaTrader 5\terminal64.exe" set "MT5_EXE=C:\Program Files\MetaTrader 5\terminal64.exe"
+if not defined MT5_EXE if exist "%APPDATA%\MetaTrader 5\terminal64.exe" set "MT5_EXE=%APPDATA%\MetaTrader 5\terminal64.exe"
 
-if not defined FOUND (
-  echo.
-  echo   I could not find terminal64.exe yet.
-  echo   If the installer is still open, finish it, then run DO-IT-ALL.bat.
-  echo.
-  pause
-  exit /b 1
-)
+if not defined MT5_EXE goto :notyet
+goto :found
 
-echo   found: %FOUND%
-set "MT5_FOUND=%FOUND%"
-powershell -NoProfile -Command "$p=$env:MT5_FOUND; if($p){ (Get-Content '.env') -replace '^MT5_PATH=.*', ('MT5_PATH=' + $p) | Set-Content '.env' -Encoding UTF8 }" >nul 2>&1
+:notyet
+echo.
+echo   MetaTrader 5 is not there yet.
+echo   If the installer is still open, finish it, then run DO-IT-ALL.bat.
+echo   (send me install-mt5.log if it fails)
+echo.
+pause
+exit /b 1
+
+:found
+echo.
+echo   FOUND: %MT5_EXE%
+echo FOUND: %MT5_EXE% >> "install-mt5.log"
+set "MT5_FOUND=%MT5_EXE%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:MT5_FOUND; if($p){ (Get-Content '.env') -replace '^MT5_PATH=.*', ('MT5_PATH=' + $p) | Set-Content '.env' -Encoding UTF8 }" >nul 2>&1
 
 echo.
 echo   opening MetaTrader 5...
-start "" "%FOUND%"
+start "" "%MT5_EXE%"
 echo.
 echo   ---------------------------------------------------------------
 echo    Log in with:
@@ -90,7 +82,18 @@ echo      Server  : Exness-MT5Real50   (search "Exness" in the list)
 echo      Password: your Exness password
 echo   ---------------------------------------------------------------
 echo.
-echo   After you are logged in: run DO-IT-ALL.bat
+echo   After you log in: run DO-IT-ALL.bat
 echo.
 pause
 exit /b 0
+
+:fail
+echo.
+echo   THE DOWNLOAD FAILED.
+echo   Open this link in your browser and install it manually:
+echo     https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
+echo   then run DO-IT-ALL.bat again.
+echo   (send me install-mt5.log if it keeps failing)
+echo.
+pause
+exit /b 1
