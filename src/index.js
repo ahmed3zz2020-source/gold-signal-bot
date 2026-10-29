@@ -325,12 +325,28 @@ async function commands() {
           '👋 <b>Gold Scout</b> — شغال.',
           ctx ? `💰 ${ctx.price.toFixed(1)} · الاتجاه ${ctx.bias === 'BULLISH' ? 'صاعد' : ctx.bias === 'BEARISH' ? 'هابط' : 'محايد'}` : '⏳ لسه بيسخّن',
           'هنبهرك بس لما تطلع صفقة A أو A+ (مش أي حاجة).',
-          'الأوامر: /status · /levels · /ping',
+          'الأوامر: /status · /levels · /ping · /update',
         ].join('\n'));
       } else if (txt === '/status' && ctx) {
         await notify(formatStatus(ctx, { trades: state.trades.length, r: state.dailyR, time: `${l().hhmm} القاهرة` }));
       } else if (txt === '/levels' && ctx) {
         await notify(formatLevels(ctx));
+      } else if (txt === '/update' || txt === 'تحديث' || txt === '/zip') {
+        // push the latest project ZIP to the user's phone/laptop over Telegram
+        const zip = process.env.UPDATE_ZIP || '/workspace/output/gold-signal-bot.zip';
+        try {
+          await notify('⬇️ جاري إرسال آخر نسخة…');
+          const { sendDocument } = await import('./telegram.js');
+          await sendDocument(TOKEN, CHAT, zip,
+            '📦 آخر نسخة من gold-signal-bot\n\n' +
+            '1) افتح الملف (ZIP) واضغط Extract All\n' +
+            '2) افتح المجلد gold-signal-bot\n' +
+            '3) دوس DO-IT-ALL.bat\n\n' +
+            'ومن هنا فصاعدًا: دوس UPDATE.bat وهينزّل آخر نسخة لوحده.');
+        } catch (e) {
+          console.error('[tg] update failed:', e.message);
+          await notify(`❌ فشل إرسال الملف: ${e.message}`);
+        }
       }
     }
   } catch {}

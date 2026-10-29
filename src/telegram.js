@@ -45,6 +45,23 @@ export async function getUpdates(token, offset) {
   return j.ok ? j.result : [];
 }
 
+/** Send a file (the latest project ZIP) so it lands on the user's machine.
+ *  This is the "always up to date" channel: no links to open, no guessing. */
+export async function sendDocument(token, chatId, filePath, caption) {
+  if (!token || !chatId) throw new Error('telegram token/chatId missing');
+  const fs = await import('node:fs');
+  if (!fs.existsSync(filePath)) throw new Error(`file not found: ${filePath}`);
+  const form = new FormData();
+  form.append('chat_id', String(chatId));
+  form.append('caption', caption || '');
+  const buf = fs.readFileSync(filePath);
+  form.append('document', new Blob([buf]), filePath.split(/[\\/]/).pop());
+  const r = await fetch(`${API(token)}/sendDocument`, { method: 'POST', body: form });
+  const j = await r.json();
+  if (!j.ok) throw new Error(`telegram document: ${j.description}`);
+  return j.result;
+}
+
 // ---------------------------------------------------------------- messages
 
 /** The trade alert: what to do, in order, with plain numbers. */
