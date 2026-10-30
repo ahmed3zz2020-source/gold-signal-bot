@@ -176,7 +176,7 @@ class McpMt5:
                 volume_max=_f(s.get("volume_max"), 100.0),
                 volume_step=_f(s.get("volume_step"), 0.01),
                 trade_mode=_i(s.get("trade_mode"), 4),
-                visible=True,
+                visible=False,
                 swap_long=_f(s.get("swap_long")),
                 swap_short=_f(s.get("swap_short")),
                 currency_profit=s.get("currency_profit") or "",
@@ -194,17 +194,23 @@ class McpMt5:
 
     def symbol_select(self, name, visible=True):
         self._get("add_marketwatch_symbol", {"symbol": name, "show": bool(visible)}, {})
-        self._symbols.pop(name, None)
-        self.symbols_get()
-        return bool(self.symbol_info(name))
+        info = self.symbol_info(name)
+        if info is not None:
+            info.visible = bool(visible)
+        return info is not None
 
     def symbol_info_tick(self, name):
-        info = self.symbol_info(name)
-        if info is None:
-            return None
-        raw = getattr(info, "raw", {}) or {}
+        # the catalogue (include_hidden) carries no quotes, so ask for this one symbol
+        out = self._get("get_marketwatch_symbols", {"symbol": name}, {}) or {}
+        syms = out.get("symbols") or []
+        raw = syms[0] if syms else {}
         bid = raw.get("bid")
         ask = raw.get("ask")
+        if bid is None or ask is None:
+            info = self.symbol_info(name)
+            raw = getattr(info, "raw", {}) or {} if info is not None else {}
+            bid = raw.get("bid")
+            ask = raw.get("ask")
         if bid is None or ask is None:
             return None
         return Obj(bid=_f(bid), ask=_f(ask), time=_i(raw.get("time"), 0),
