@@ -2,17 +2,16 @@
 REM ============================================================
 REM  DO-IT-ALL.bat  -  one click, the whole setup
 REM
-REM  It does EVERYTHING by itself:
-REM    1. finds your MetaTrader 5 (and writes its path into the .env)
-REM    2. creates the virtual environment + installs the MetaTrader5 package
-REM    3. opens the .env in Notepad so you can paste your Exness password (once)
-REM    4. opens MetaTrader 5
-REM    5. tests the connection and prints the account + the gold symbol
+REM  1. creates the virtual environment + installs MetaTrader5
+REM  2. opens the .env in Notepad so you can paste the password
+REM  3. finds MetaTrader 5 and opens it
+REM  4. tests the connection and prints the account + the gold symbol
 REM
 REM  It NEVER places an order.
 REM ============================================================
-setlocal EnableDelayedExpansion
+setlocal
 cd /d "%~dp0"
+title Gold Signal Bot - setup
 
 echo.
 echo ============================================================
@@ -20,8 +19,7 @@ echo   GOLD SIGNAL BOT  -  one-click setup
 echo ============================================================
 echo.
 
-REM ---------- 0) the .env (it comes ready in the SETUP zip - the password is the only
-REM              thing you have to type) -----------------------------------------
+REM ---------- 0) the .env ----------
 if not exist ".env" (
   echo   .env is missing - copy it from bridge\.env.example first.
   echo.
@@ -37,7 +35,7 @@ if not exist "%PY%" set "PY=py"
 
 REM ---------- 2) venv + package -----------------------------------------
 echo.
-echo [2/5] virtual environment + MetaTrader5 package (takes a minute)...
+echo [2/5] virtual environment + MetaTrader5 package - takes a minute...
 if not exist ".venv\Scripts\python.exe" (
   "%PY%" -m venv .venv || goto :fail
 ) else (
@@ -60,46 +58,24 @@ if errorlevel 1 (
   echo   .env already has a password - skipping Notepad
 )
 
-REM ---------- 4) find MetaTrader 5 + start it -----------------------------
+REM ---------- 4) find MetaTrader 5 --------------------------------------
 echo.
 echo [4/5] looking for MetaTrader 5...
 set "MT5_EXE="
-for %%P in (
-  "C:\Program Files\MetaTrader 5\terminal64.exe"
-  "C:\Program Files (x86)\MetaTrader 5\terminal64.exe"
-  "%LOCALAPPDATA%\MetaTrader 5\terminal64.exe"
-  "%APPDATA%\MetaTrader 5\terminal64.exe"
-  "C:\Program Files\Exness\MetaTrader 5\terminal64.exe"
-  "C:\Program Files (x86)\Exness\MetaTrader 5\terminal64.exe"
-) do (
-  if exist %%P if not defined MT5_EXE set "MT5_EXE=%%~P"
-)
+if exist "C:\Program Files\MetaTrader 5\terminal64.exe" set "MT5_EXE=C:\Program Files\MetaTrader 5\terminal64.exe"
+if not defined MT5_EXE if exist "C:\Program Files (x86)\MetaTrader 5\terminal64.exe" set "MT5_EXE=C:\Program Files (x86)\MetaTrader 5\terminal64.exe"
+if not defined MT5_EXE if exist "%LOCALAPPDATA%\MetaTrader 5\terminal64.exe" set "MT5_EXE=%LOCALAPPDATA%\MetaTrader 5\terminal64.exe"
+if not defined MT5_EXE if exist "%APPDATA%\MetaTrader 5\terminal64.exe" set "MT5_EXE=%APPDATA%\MetaTrader 5\terminal64.exe"
+if not defined MT5_EXE if exist "C:\Program Files\Exness\MetaTrader 5\terminal64.exe" set "MT5_EXE=C:\Program Files\Exness\MetaTrader 5\terminal64.exe"
+if not defined MT5_EXE if exist "C:\Program Files (x86)\Exness\MetaTrader 5\terminal64.exe" set "MT5_EXE=C:\Program Files (x86)\Exness\MetaTrader 5\terminal64.exe"
+
 if not defined MT5_EXE (
-  for /f "delims=" %%P in ('where /r "C:\Program Files" terminal64.exe 2^>nul') do (
-    if not defined MT5_EXE set "MT5_EXE=%%P"
-  )
+  echo   searching the whole disk...
+  for /f "delims=" %%P in ('where /r "C:\Program Files" terminal64.exe 2^>nul') do if not defined MT5_EXE set "MT5_EXE=%%P"
 )
-if not defined MT5_EXE (
-  for /f "delims=" %%P in ('where /r "C:\Program Files (x86)" terminal64.exe 2^>nul') do (
-    if not defined MT5_EXE set "MT5_EXE=%%P"
-  )
-)
-if not defined MT5_EXE (
-  echo   MetaTrader 5 was not found on this computer.
-  echo.
-  set /p "ANSWER=   Install it now? (Y/N) "
-  if /i "!ANSWER!"=="Y" (
-    echo.
-    call "%~dp0INSTALL-MT5.bat"
-    echo.
-    echo   After the installation finishes, run DO-IT-ALL.bat again.
-    goto :fail
-  )
-  echo   Install it from the Exness app (the account screen - the MT5 button),
-  echo   or from: https://www.metatrader5.com/en
-  echo   then run this file again.
-  goto :fail
-)
+
+if not defined MT5_EXE goto :nomt5
+
 echo   found: %MT5_EXE%
 set "MT5_FOUND=%MT5_EXE%"
 powershell -NoProfile -Command "$p=$env:MT5_FOUND; if($p){ (Get-Content '.env') -replace '^MT5_PATH=.*', ('MT5_PATH=' + $p) | Set-Content '.env' -Encoding UTF8 }" >nul 2>&1
@@ -115,7 +91,7 @@ if errorlevel 1 (
 
 REM ---------- 5) the connection test -------------------------------------
 echo.
-echo [5/5] testing the connection (read-only, NO orders)...
+echo [5/5] testing the connection - read only, NO orders...
 echo ---------------------------------------------------------------
 ".venv\Scripts\python.exe" bridge\test_connection.py > "bridge-report.txt" 2>&1
 type "bridge-report.txt"
@@ -124,9 +100,31 @@ echo.
 echo The same output is saved in bridge-report.txt and opens in Notepad.
 start notepad "bridge-report.txt"
 echo.
-echo Send me the output above (copy + paste the TEXT is perfect).
+echo Send me the text above - copy and paste is perfect.
 pause
 exit /b 0
+
+:nomt5
+echo.
+echo   MetaTrader 5 was not found on this computer.
+echo.
+echo   Press Y and I will download and install it for you.
+echo   Or install it from the Exness app - account screen - the MT5 button.
+echo   Or from: https://www.metatrader5.com/en
+echo.
+set /p "ANSWER=   Install MetaTrader 5 now? Y/N : "
+if /i "%ANSWER%"=="Y" (
+  echo.
+  call "%~dp0INSTALL-MT5.bat"
+  echo.
+  echo   After the installation finishes, run DO-IT-ALL.bat again.
+  goto :fail
+)
+echo.
+echo   OK - install MetaTrader 5, then run DO-IT-ALL.bat again.
+echo.
+pause
+exit /b 1
 
 :fail
 echo.

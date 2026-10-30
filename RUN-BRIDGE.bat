@@ -38,7 +38,7 @@ if not defined ENGINE_URL set "ENGINE_URL=http://127.0.0.1:8080"
 set "SELFTEST_SIGNAL=0"
 
 echo   engine    : %ENGINE_URL%
-echo   dry run   : %DRY_RUN%   (1 = logs only, 0 = real orders)
+echo   dry run   : %DRY_RUN%   1 = logs only, 0 = real orders
 echo   lot       : %FIXED_VOLUME%
 echo   per day   : %MAX_TRADES_PER_DAY%
 echo.

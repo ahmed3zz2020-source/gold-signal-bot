@@ -26,7 +26,7 @@ echo.
 echo   ---------------------------------------------------------------
 echo   In Notepad: put your Exness password on the line
 echo     MT5_PASSWORD=...
-echo   Leave everything else as it is. Then save (Ctrl+S) and close.
+echo   Leave everything else as it is. Then save Ctrl+S and close.
 echo   ---------------------------------------------------------------
 echo.
 
@@ -34,6 +34,6 @@ notepad ".env"
 
 echo.
 echo   done. Now double-click  setup-and-test.bat
-echo   (the script logs into Exness by itself - no manual login needed)
+echo   the script logs into Exness by itself - no manual login needed
 echo.
 pause

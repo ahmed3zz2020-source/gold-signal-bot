@@ -50,13 +50,13 @@ echo ---------------------------------------------------------------
 if exist "bridge-selftest.log" (
   type "bridge-selftest.log"
 ) else (
-  echo   (no output - open bridge-selftest.err)
+  echo   no output - open bridge-selftest.err
 )
 echo ---------------------------------------------------------------
 echo.
 echo The same output is saved in bridge-selftest.log and opens in Notepad.
 start notepad "bridge-selftest.log"
 echo.
-echo Send me the TEXT of this file (copy + paste is perfect).
+echo Send me the TEXT of this file copy + paste is perfect.
 pause
 exit /b 0

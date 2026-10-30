@@ -38,7 +38,7 @@ if exist "%NODE_EXE%" (
   goto :run
 )
 
-echo   Node.js not found - downloading a portable copy (one time, ~30 MB)...
+echo   Node.js not found - downloading a portable copy one time, ~30 MB...
 if not exist "%NODE_DIR%" mkdir "%NODE_DIR%" >nul 2>&1
 powershell -NoProfile -Command "$u='https://nodejs.org/dist/%NODE_VERSION%/node-%NODE_VERSION%-win-x64.zip'; $f=Join-Path $env:TEMP 'node.zip'; Invoke-WebRequest -Uri $u -OutFile $f; Expand-Archive -Path $f -DestinationPath '%NODE_DIR%' -Force; Remove-Item $f" >nul 2>&1
 
@@ -72,7 +72,7 @@ if not defined BRIDGE_TOKEN (
 
 echo.
 echo   the engine is starting. Leave this window OPEN.
-echo   the bridge (RUN-BRIDGE.bat) talks to it on http://127.0.0.1:%PORT%
+echo   the bridge RUN-BRIDGE.bat talks to it on http://127.0.0.1:%PORT%
 echo   to stop: close this window.
 echo.
 echo ---------------------------------------------------------------

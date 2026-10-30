@@ -12,8 +12,8 @@ echo ============================================================
 echo   INSTALLING META TRADER 5
 echo ============================================================
 echo.
-echo   (if this window closes by itself, open install-mt5.log
-echo    and send me that file)
+echo   if this window closes by itself, open install-mt5.log
+echo    and send me that file
 echo.
 
 if exist "install-mt5.log" del /q "install-mt5.log" >nul 2>&1
@@ -28,7 +28,7 @@ if not defined MT5_EXE if exist "%APPDATA%\MetaTrader 5\terminal64.exe" set "MT5
 if defined MT5_EXE goto :found
 
 REM ---------- 2) download ----------
-echo   downloading MetaTrader 5 (24 MB)...
+echo   downloading MetaTrader 5 24 MB...
 echo downloading >> "install-mt5.log"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; try { Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile 'mt5setup.exe' -UseBasicParsing; Write-Host 'downloaded OK' } catch { Write-Host ('FAILED: ' + $_.Exception.Message) }" 2>&1 | findstr /i "OK FAILED" >> "install-mt5.log"
 
@@ -59,7 +59,7 @@ goto :found
 echo.
 echo   MetaTrader 5 is not there yet.
 echo   If the installer is still open, finish it, then run DO-IT-ALL.bat.
-echo   (send me install-mt5.log if it fails)
+echo   send me install-mt5.log if it fails
 echo.
 pause
 exit /b 1
@@ -78,7 +78,7 @@ echo.
 echo   ---------------------------------------------------------------
 echo    Log in with:
 echo      Login   : 458089169
-echo      Server  : Exness-MT5Real50   (search "Exness" in the list)
+echo      Server  : Exness-MT5Real50   search "Exness" in the list
 echo      Password: your Exness password
 echo   ---------------------------------------------------------------
 echo.
@@ -93,7 +93,7 @@ echo   THE DOWNLOAD FAILED.
 echo   Open this link in your browser and install it manually:
 echo     https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
 echo   then run DO-IT-ALL.bat again.
-echo   (send me install-mt5.log if it keeps failing)
+echo   send me install-mt5.log if it keeps failing
 echo.
 pause
 exit /b 1

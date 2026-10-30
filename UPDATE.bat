@@ -34,11 +34,11 @@ echo   Unpacking...
 powershell -NoProfile -Command "Expand-Archive -Path 'update.zip' -DestinationPath '.' -Force" >nul 2>&1
 
 if exist "gold-signal-bot-main" (
-  echo   Updating your folder (your .env and .venv are kept)...
+  echo   Updating your folder your .env and .venv are kept...
   xcopy /E /Y /I /Q /EXCLUDE:exclude.txt "gold-signal-bot-main\*" "." >nul
   rd /s /q "gold-signal-bot-main" >nul 2>&1
 ) else (
-  echo   Unpacked directly (no inner folder).
+  echo   Unpacked directly no inner folder.
   xcopy /E /Y /I /Q /EXCLUDE:exclude.txt "*" "." >nul
 )
 
