@@ -137,6 +137,44 @@ def connect(verbose=True):
         info["version"] = mt5.version()
         return acc
 
+    # ---- 0) the terminal's own MCP server first (the only way that works on the
+    #         new MT5 builds - the old python IPC times out with -10005)
+    try:
+        import mcp_mt5
+        mod, minfo = mcp_mt5.connect(verbose=verbose)
+        if mod is not None:
+            info.update({
+                "ok": True, "connected": True, "mode": "mcp",
+                "login": minfo.get("login"), "server": minfo.get("server"),
+                "name": minfo.get("name"), "currency": minfo.get("currency"),
+                "balance": minfo.get("balance"),
+                "trade_allowed": minfo.get("trade_allowed"),
+                "terminal_path": "C:\\Program Files\\MetaTrader 5",
+                "version": None, "expected_login": exp_login,
+                "expected_server": exp_server, "mismatch": False,
+                "problems": [], "env_file": env_file or "",
+                "mcp_url": minfo.get("mcp_url"),
+            })
+            if exp_login and info["login"] and info["login"] != exp_login:
+                info["mismatch"] = True
+                info["problems"].append("WRONG ACCOUNT: connected as %s, expected %s"
+                                        % (info["login"], exp_login))
+            if exp_server and info["server"] and exp_server.lower() not in info["server"].lower():
+                info["mismatch"] = True
+                info["problems"].append("WRONG SERVER: connected to %s, expected %s"
+                                        % (info["server"], exp_server))
+            info["ok"] = info["connected"] and not info["mismatch"]
+            if verbose:
+                print("   connected via     : MCP")
+                print("   terminal path     :", info["terminal_path"])
+                for p_ in info["problems"]:
+                    print("   !", p_)
+            return mod, info
+        else:
+            info["problems"].extend(minfo.get("problems") or [])
+    except Exception as exc:                                    # noqa: BLE001
+        info["problems"].append("mcp adapter raised: %s" % exc)
+
     attempts = []
 
     # ---- 1) attach to whatever terminal is running, NO credentials.
