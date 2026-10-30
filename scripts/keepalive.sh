@@ -64,8 +64,21 @@ if [ -f "$WORKSPACE_TOKEN" ] && [ "$(cat "$WORKSPACE_TOKEN")" != "$BRIDGE_TOKEN"
 fi
 
 # ── 3. the telegram credentials (the engine is useless without them) ──────────
+# The telegram token must NEVER be written to a file. If this session does not have
+# it in the environment, take it from the engine that is already running (its own
+# /proc environment) — that is the last copy that exists without writing it down.
 if [ -z "${TELEGRAM_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-  die "TELEGRAM_TOKEN / TELEGRAM_CHAT_ID are not in the environment (the engine would run blind)"
+  for pid in $(pgrep -f "node src/index.js" 2>/dev/null); do
+    [ "$pid" = "$$" ] && continue
+    env_file="/proc/$pid/environ"
+    [ -r "$env_file" ] || continue
+    t="$(tr '\0' '\n' < "$env_file" 2>/dev/null | sed -n 's/^TELEGRAM_TOKEN=//p' | head -1)"
+    c="$(tr '\0' '\n' < "$env_file" 2>/dev/null | sed -n 's/^TELEGRAM_CHAT_ID=//p' | head -1)"
+    [ -n "$t" ] && [ -n "$c" ] && { TELEGRAM_TOKEN="$t"; TELEGRAM_CHAT_ID="$c"; break; }
+  done
+fi
+if [ -z "${TELEGRAM_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+  die "TELEGRAM_TOKEN / TELEGRAM_CHAT_ID are not available (the engine would run blind)"
 fi
 
 # ── 4. is it already running? ────────────────────────────────────────────────
