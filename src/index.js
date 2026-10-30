@@ -43,12 +43,18 @@ function save() {
 
 const builder = new BarBuilder();
 function rebuild() {
+  // Restore the bars with their REAL high/low. The old version pushed the close twice,
+  // so every restored bar had h = l = c: the ATR collapsed, the swings went flat and
+  // the stop distances shrank — silently, and worse with every container recycle.
   for (const [k, v] of Object.entries(state.bars)) {
     const [d, t] = k.split('T');
     const [Y, M, D] = d.split('-').map(Number);
     const [h, m] = t.split(':').map(Number);
-    builder.push(Date.UTC(Y, M - 1, D, h, m), v.c);
-    builder.push(Date.UTC(Y, M - 1, D, h, m) + 59000, v.c);
+    const base = Date.UTC(Y, M - 1, D, h, m);
+    builder.push(base, v.o);
+    if (v.h > v.o) builder.push(base + 1000, v.h);
+    if (v.l < v.o) builder.push(base + 2000, v.l);
+    builder.push(base + 59000, v.c);
   }
 }
 
