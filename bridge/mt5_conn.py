@@ -20,6 +20,7 @@ has to be typed on the command line.
 
 import os
 import sys
+import time
 
 BRIDGE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(BRIDGE_DIR)
@@ -138,20 +139,10 @@ def connect(verbose=True):
 
     attempts = []
 
-    # ---- 1) attach to the running terminal, NO credentials (keeps its session)
-    if path and os.path.exists(path):
-        attempts.append(("attach-path", path))
-        try:
-            ok = mt5.initialize(path=path, timeout=60_000)
-        except Exception as exc:                                  # noqa: BLE001
-            ok = False
-            info["problems"].append("attach-path raised: %s" % exc)
-        if ok and _snapshot() is not None:
-            info["connected"] = True
-            info["mode"] = "attach"
-
-    # ---- 2) no path / not attached yet -> default initialize (no credentials)
-    if not info["connected"]:
+    # ---- 1) attach to whatever terminal is running, NO credentials.
+    #         (this is the one that works when the terminal runs on another data
+    #          folder - a path-based attach can time out with -10005 IPC timeout)
+    for attempt in range(2):
         attempts.append(("attach-default", ""))
         try:
             ok = mt5.initialize(timeout=60_000)
@@ -161,6 +152,25 @@ def connect(verbose=True):
         if ok and _snapshot() is not None:
             info["connected"] = True
             info["mode"] = "attach"
+            break
+        try:
+            mt5.shutdown()
+        except Exception:                                         # noqa: BLE001
+            pass
+        if attempt == 0:
+            time.sleep(3)
+
+    # ---- 2) attach to the terminal at the configured path
+    if not info["connected"] and path and os.path.exists(path):
+        attempts.append(("attach-path", path))
+        try:
+            ok = mt5.initialize(path=path, timeout=60_000)
+        except Exception as exc:                                  # noqa: BLE001
+            ok = False
+            info["problems"].append("attach-path raised: %s" % exc)
+        if ok and _snapshot() is not None:
+            info["connected"] = True
+            info["mode"] = "attach-path"
 
     # ---- 3) still no account -> log in explicitly (ONLY with a full triple)
     if not info["connected"]:
