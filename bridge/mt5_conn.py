@@ -159,9 +159,10 @@ def connect(verbose=True):
                 info["mismatch"] = True
                 info["problems"].append("WRONG ACCOUNT: connected as %s, expected %s"
                                         % (info["login"], exp_login))
-            if exp_server and info["server"] and exp_server.lower() not in info["server"].lower():
+            if exp_server and info["server"] and exp_server.strip() != info["server"].strip():
                 info["mismatch"] = True
-                info["problems"].append("WRONG SERVER: connected to %s, expected %s"
+                info["problems"].append("WRONG SERVER: connected to %s, expected %s "
+                                        "(the server name is case sensitive)"
                                         % (info["server"], exp_server))
             info["ok"] = info["connected"] and not info["mismatch"]
             if verbose:
