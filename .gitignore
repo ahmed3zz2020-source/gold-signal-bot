@@ -14,3 +14,7 @@ bridge-report.txt
 bot.pid
 .kv-synced-at
 .kv-restore.tmp
+.bus-ns
+.cloudflared/
+.tunnel-id
+.tunnel-secret
