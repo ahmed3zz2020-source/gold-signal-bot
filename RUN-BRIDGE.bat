@@ -44,6 +44,7 @@ if not defined ENGINE_URL set "ENGINE_URL=http://127.0.0.1:8080"
 set "SELFTEST_SIGNAL=0"
 
 echo   engine    : %ENGINE_URL%
+echo   account   : %MT5_LOGIN%  (%MT5_SERVER%)   gold: %MT5_SYMBOL%
 echo   dry run   : %DRY_RUN%   1 = logs only, 0 = real orders
 echo   lot       : %FIXED_VOLUME%
 echo   per day   : %MAX_TRADES_PER_DAY%

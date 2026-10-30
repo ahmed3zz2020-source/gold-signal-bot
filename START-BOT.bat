@@ -1,12 +1,17 @@
 @echo off
 REM ============================================================
-REM  START-BOT.bat  -  ONE click and the whole bot runs.
+REM  START-BOT.bat  -  checks MetaTrader 5, then starts the bridge.
 REM
-REM  It:
+REM  What it does:
 REM    1. loads the .env
-REM    2. checks MetaTrader 5 and the MCP server
-REM    3. starts the signal engine (Node.js) if it is not running
-REM    4. starts the bridge (it watches MT5 and trades the signals)
+REM    2. checks MetaTrader 5 is running and the MCP server answers
+REM    3. starts the BRIDGE (it pulls the signals from the engine
+REM       on the server and sends the orders to MT5)
+REM
+REM  The signal engine does NOT run on this computer - it runs on
+REM  the server (gold-engine.octashares.com). Never start it here:
+REM  a second engine would push its own signals into the same bus
+REM  and the two would fight over the trades.
 REM
 REM  Leave this window open. To stop: close it.
 REM ============================================================
@@ -16,12 +21,13 @@ title Gold Signal Bot
 
 echo.
 echo ============================================================
-echo   GOLD SIGNAL BOT  -  starting
+echo   GOLD SIGNAL BOT  -  starting the bridge
 echo ============================================================
 echo.
 
 if not exist ".env" (
-  echo   .env is missing - run DO-IT-ALL.bat first.
+  echo   .env is missing - it comes with the package.
+  echo   Unzip the whole folder again - run DO-IT-ALL.bat first.
   echo.
   pause
   exit /b 1
@@ -65,36 +71,15 @@ if errorlevel 1 (
 echo   MT5 answered - the account is:
 findstr /i "login balance currency server" "mt5-check.txt"
 
-REM ---- 3) the engine ----
-netstat -an | find ":8080" | find "LISTENING" >nul
-if not errorlevel 1 (
-  echo   the engine is already running on port 8080.
-) else (
-  echo   starting the engine...
-  where node >nul 2>&1
-  if not errorlevel 1 (
-    start "Gold Engine" /min node src\index.js
-  ) else (
-    if exist "tools\node\node-v22.19.0-win-x64\node.exe" (
-      start "Gold Engine" /min "tools\node\node-v22.19.0-win-x64\node.exe" src\index.js
-    ) else (
-      echo   Node.js is missing - run RUN-ENGINE.bat once to download it.
-      echo.
-      pause
-      exit /b 1
-    )
-  )
-  timeout /t 8 /nobreak >nul
-)
-
-REM ---- 4) the bridge ----
+REM ---- 3) the bridge (the engine is on the server) ----
 echo.
 echo   starting the bridge - it will now watch gold and trade the signals.
 echo   leave this window open. To stop, close it.
 echo.
 echo ---------------------------------------------------------------
 echo.
-"%PY%" bridge\mt5_bridge.py
+
+call "%~dp0RUN-BRIDGE.bat"
 
 echo.
 echo   the bot stopped.

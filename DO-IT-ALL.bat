@@ -21,7 +21,9 @@ echo.
 
 REM ---------- 0) the .env ----------
 if not exist ".env" (
-  echo   .env is missing - copy it from bridge\.env.example first.
+  echo   .env is missing - it comes with the package (it holds the link
+  echo   to the signal engine and the shared password).
+  echo   Unzip the whole folder again - never create a new .env by hand.
   echo.
   pause
   exit /b 1
@@ -45,17 +47,20 @@ if not exist ".venv\Scripts\python.exe" (
 ".venv\Scripts\python.exe" -m pip install MetaTrader5 --quiet || goto :fail
 echo   done
 
-REM ---------- 3) the password -------------------------------------------
+REM ---------- 3) the password (OPTIONAL - the MCP path does not need it) --
 echo.
-echo [3/5] the Exness password...
-powershell -NoProfile -Command "$c = Get-Content '.env' -Raw -ErrorAction SilentlyContinue; if($c -match 'your-password-here'){ exit 1 } else { exit 0 }" >nul 2>&1
-if errorlevel 1 (
-  echo   Notepad is opening. Put your Exness password on the line
-  echo     MT5_PASSWORD=...
-  echo   then press Ctrl+S and close Notepad.
-  start /wait notepad ".env"
-) else (
-  echo   .env already has a password - skipping Notepad
+echo [3/5] the Exness password... (optional)
+echo   The bridge talks to MT5 through the terminal's own MCP server,
+echo   so the password is NOT needed. Skip this.
+echo   (Only fill it in if the MCP route ever fails and you want the old way.)
+set "HAVE_PW=0"
+powershell -NoProfile -Command "$c = Get-Content '.env' -ErrorAction SilentlyContinue; $l = $c | Where-Object { $_ -match '^\s*MT5_PASSWORD=' } | Select-Object -First 1; if ($l) { $v = ($l -split '=',2)[1].Trim() } else { $v = '' }; if ($v -eq '' -or $v -eq 'your-password-here') { exit 1 } else { exit 0 }" >nul 2>&1
+if not errorlevel 1 (
+  set "HAVE_PW=1"
+  echo   .env already has a password - keeping it
+)
+if "%HAVE_PW%"=="0" (
+  echo   no password - fine, skipping it. The MCP route does not need one.
 )
 
 REM ---------- 4) find MetaTrader 5 --------------------------------------
@@ -78,7 +83,7 @@ if not defined MT5_EXE goto :nomt5
 
 echo   found: %MT5_EXE%
 set "MT5_FOUND=%MT5_EXE%"
-powershell -NoProfile -Command "$p=$env:MT5_FOUND; if($p){ (Get-Content '.env') -replace '^MT5_PATH=.*', ('MT5_PATH=' + $p) | Set-Content '.env' -Encoding UTF8 }" >nul 2>&1
+powershell -NoProfile -Command "$p=$env:MT5_FOUND; if($p){ (Get-Content '.env' -Encoding UTF8) -replace '^MT5_PATH=.*', ('MT5_PATH=' + $p) | Set-Content '.env' -Encoding UTF8 }" >nul 2>&1
 
 tasklist /fi "imagename eq terminal64.exe" | find /i "terminal64.exe" >nul
 if errorlevel 1 (
@@ -92,6 +97,9 @@ if errorlevel 1 (
 REM ---------- 5) the connection test -------------------------------------
 echo.
 echo [5/5] testing the connection - read only, NO orders...
+echo ---------------------------------------------------------------
+echo   (If it says the MCP key is missing, that is normal right now:
+echo    the key comes in the NEXT step - GET-MCP-KEY.bat)
 echo ---------------------------------------------------------------
 ".venv\Scripts\python.exe" bridge\test_connection.py > "bridge-report.txt" 2>&1
 type "bridge-report.txt"

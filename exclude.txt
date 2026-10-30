@@ -1,4 +1,6 @@
 .env
+.bridge-token
 .venv
 __pycache__
 *.pyc
+*.log

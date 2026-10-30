@@ -2,6 +2,13 @@
 REM ============================================================
 REM  RUN-ENGINE.bat  -  runs the signal engine on THIS computer.
 REM
+REM  ⚠ YOU DO NOT NEED THIS ON YOUR LAPTOP.
+REM    The signal engine already runs on the server
+REM    (gold-engine.octashares.com). Your laptop only needs the
+REM    bridge: RUN-BRIDGE.bat.
+REM    This file is kept for the server/admin side (and for a local
+REM    test), and it downloads a portable Node.js if none is there.
+REM
 REM  It needs Node.js 20+. If Node is not installed, it downloads a
 REM  portable copy into the folder (no admin rights, one time only).
 REM
@@ -10,7 +17,7 @@ REM  to Telegram. It also opens the API on port 8080 so the bridge
 REM  (the same folder) can pull the signals from it.
 REM
 REM   LEAVE THIS WINDOW OPEN. Closing it stops the engine.
-REM   The first 4-5 hours it only warms up (it needs 20 closed
+REM   The first ~10 hours it only warms up (it needs 40 closed
 REM     15-minute candles before it can read the structure).
 REM ============================================================
 setlocal
@@ -89,6 +96,7 @@ if not defined BRIDGE_TOKEN (
 echo.
 echo   the engine is starting. Leave this window OPEN.
 echo   the bridge RUN-BRIDGE.bat talks to it on http://127.0.0.1:%PORT%
+echo   (the real bridge on your laptop pulls from ENGINE_URL instead).
 echo   to stop: close this window.
 echo.
 echo ---------------------------------------------------------------

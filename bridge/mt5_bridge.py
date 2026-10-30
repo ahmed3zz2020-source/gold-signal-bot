@@ -11,12 +11,16 @@ Safety rules that live here (never only in the engine):
   * DRY_RUN=1 => it only logs what it WOULD have done.
 
 Env:
-  ENGINE_URL   e.g. https://your-bridge.up.railway.app
+  ENGINE_URL   e.g. https://gold-engine.octashares.com   (the bus that carries the signals)
   BRIDGE_TOKEN shared secret (the Bearer token of the engine's /next-signal)
   MT5_LOGIN / MT5_PASSWORD / MT5_SERVER   (the server name exactly as in the Personal Area)
-  MT5_SYMBOL   e.g. XAUUSDm  (resolve it from the terminal, never guess)
+  MT5_SYMBOL   empty = auto-detect the gold symbol from the terminal
+                (XAUUSD / XAUUSDm / XAUUSDc - never hardcode it blindly)
   ACCOUNT_BALANCE fallback if the balance cannot be read
-  RISK_PCT=0.5  DAILY_CAP_PCT=1.5  MAX_TRADES_PER_DAY=2
+  FIXED_VOLUME=0.01   the trader's own size (the same every trade); 0 = use RISK_PCT
+  RISK_PCT=0.5        risk mode only - ignored while FIXED_VOLUME > 0
+  MAX_RISK_PCT_PER_TRADE=20  DAILY_CAP_PCT=45  DAILY_CAP_R=3  MAX_TRADES_PER_DAY=10
+  MIN_STOP_POINTS=2  MAX_STOP_POINTS=10  MAX_SPREAD_POINTS=1.0  MAX_MARGIN_USE_PCT=30
   MAX_PRICE_DRIFT=2.0  MAX_SIGNAL_AGE_S=120  DRY_RUN=1  POLL_SECONDS=5
 """
 
@@ -44,7 +48,7 @@ MT5_PATH = os.environ.get("MT5_PATH", r"C:\Program Files\MetaTrader 5\terminal64
 ACCOUNT_BALANCE = float(os.environ.get("ACCOUNT_BALANCE", "0") or 0)
 RISK_PCT = float(os.environ.get("RISK_PCT", "0.5"))
 DAILY_CAP_PCT = float(os.environ.get("DAILY_CAP_PCT", "1.5"))
-MAX_TRADES_PER_DAY = int(os.environ.get("MAX_TRADES_PER_DAY", "2"))
+MAX_TRADES_PER_DAY = int(os.environ.get("MAX_TRADES_PER_DAY", "10"))
 MAX_PRICE_DRIFT = float(os.environ.get("MAX_PRICE_DRIFT", "2.0"))
 MAX_SIGNAL_AGE_S = int(os.environ.get("MAX_SIGNAL_AGE_S", "120"))
 

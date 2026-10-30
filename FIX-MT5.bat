@@ -54,7 +54,7 @@ echo.
 
 if not exist ".env" goto noenv
 copy ".env" ".env.bak" >nul 2>&1
-powershell -NoProfile -Command "$p='%PICK%'; $c=Get-Content '.env'; $c=$c -replace '^MT5_PATH=.*$',('MT5_PATH='+$p); Set-Content -Path '.env' -Value $c -Encoding ASCII"
+powershell -NoProfile -Command "$p='%PICK%'; $c=Get-Content '.env' -Encoding UTF8; $c=$c -replace '^MT5_PATH=.*$',('MT5_PATH='+$p); Set-Content -Path '.env' -Value $c -Encoding UTF8"
 echo   MT5_PATH was written into the .env file.
 echo.
 
@@ -63,7 +63,7 @@ start "" "%PICK%"
 echo.
 echo ============================================================
 echo   DONE. Now do these 4 things:
-echo     1. log in to Exness-MT5Real50
+echo     1. log in to Exness-MT5Real34  (login 253734295)
 echo     2. make the Algo Trading button GREEN
 echo     3. copy the MCP key - Tools then Options then MCP
 echo     4. run GET-MCP-KEY.bat

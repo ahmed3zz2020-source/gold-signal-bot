@@ -113,7 +113,8 @@ function mapExtras(ctx) {
 // ---------------------------------------------------------------- learning engine
 // Every candidate (fired OR skipped) is journalled with a uniform counterfactual outcome.
 // The learning may only REMOVE setups that are demonstrably worse than average; it never
-// touches the hard rules (0.5% risk, 1.5% daily cap, 2:1 floor, blackout, no stacking).
+// touches the hard rules (the risk per trade and the daily cap from config.json,
+// the 2:1 floor, the blackout, no stacking).
 const JOURNAL_FILE = process.env.JOURNAL_FILE || path.join(process.cwd(), 'journal.jsonl');
 const OUTCOMES_FILE = process.env.OUTCOMES_FILE || path.join(process.cwd(), 'outcomes.jsonl');
 const LC = { ...(CFG.learning || {}) };

@@ -30,17 +30,31 @@ for %%U in ("%U1%" "%U2%" "%U3%") do (
 
 if not exist update.zip goto :fail
 
+REM ---- unpack into a temp folder (never into your project folder) ----
 echo   Unpacking...
-powershell -NoProfile -Command "Expand-Archive -Path 'update.zip' -DestinationPath '.' -Force" >nul 2>&1
+set "TMPU=%TEMP%\gsb-update"
+if exist "%TMPU%" rd /s /q "%TMPU%" >nul 2>&1
+mkdir "%TMPU%" >nul 2>&1
+powershell -NoProfile -Command "Expand-Archive -Path 'update.zip' -DestinationPath '%TMPU%' -Force" >nul 2>&1
 
-if exist "gold-signal-bot-main" (
-  echo   Updating your folder your .env and .venv are kept...
-  xcopy /E /Y /I /Q /EXCLUDE:exclude.txt "gold-signal-bot-main\*" "." >nul
-  rd /s /q "gold-signal-bot-main" >nul 2>&1
-) else (
-  echo   Unpacked directly no inner folder.
-  xcopy /E /Y /I /Q /EXCLUDE:exclude.txt "*" "." >nul
+REM ---- find the folder that holds the project (the one with package.json) ----
+REM      the GitHub archive calls it gold-signal-bot-main, the release zip
+REM      calls it gold-signal-bot - both are handled here.
+set "SRC="
+for /d %%D in ("%TMPU%\*") do (
+  if exist "%%~fD\package.json" if not defined SRC set "SRC=%%~fD"
 )
+if not defined SRC if exist "%TMPU%\package.json" set "SRC=%TMPU%"
+
+if defined SRC (
+  echo   Updating your folder - your .env and .venv are kept...
+  xcopy /E /Y /I /Q /EXCLUDE:exclude.txt "%SRC%\*" "." >nul
+) else (
+  echo   The archive does not look like the project - nothing was changed.
+  echo   Ask for the file again from Telegram.
+)
+
+rd /s /q "%TMPU%" >nul 2>&1
 
 del /q update.zip >nul 2>&1
 

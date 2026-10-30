@@ -3,7 +3,8 @@ REM ============================================================
 REM  BRIDGE-SELFTEST.bat  -  proves the WHOLE chain without trading.
 REM
 REM  It logs into MT5, reads the account + the gold symbol, computes the
-REM  lot size for 0.5% risk and prints the plan it WOULD trade.
+REM  lot size (0.01 - the fixed size of this account) and prints the
+REM  plan it WOULD trade.
 REM
 REM  DRY_RUN=1 + SELFTEST_SIGNAL=1  =>  NO order is ever sent.
 REM  The output is saved in bridge-selftest.log and opens in Notepad.

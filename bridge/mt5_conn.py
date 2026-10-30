@@ -70,7 +70,7 @@ def cfg(name, default=""):
 # ----------------------------------------------------------------- connect
 def _norm_server(name):
     """Server names differ in case between Exness' app and the MetaQuotes list
-    (Exness-MT5Real50 vs Exness-MT5ReaL50) - compare them the same way the broker
+    (Exness-MT5Real34 vs Exness-MT5ReaL34) - compare them the same way the broker
     does: letters and digits only, case insensitive."""
     return "".join(ch for ch in str(name or "").lower() if ch.isalnum())
 

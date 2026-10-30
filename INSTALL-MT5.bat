@@ -69,7 +69,7 @@ echo.
 echo   FOUND: %MT5_EXE%
 echo FOUND: %MT5_EXE% >> "install-mt5.log"
 set "MT5_FOUND=%MT5_EXE%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:MT5_FOUND; if($p){ (Get-Content '.env') -replace '^MT5_PATH=.*', ('MT5_PATH=' + $p) | Set-Content '.env' -Encoding UTF8 }" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:MT5_FOUND; if($p){ (Get-Content '.env' -Encoding UTF8) -replace '^MT5_PATH=.*', ('MT5_PATH=' + $p) | Set-Content '.env' -Encoding UTF8 }" >nul 2>&1
 
 echo.
 echo   opening MetaTrader 5...
@@ -77,8 +77,10 @@ start "" "%MT5_EXE%"
 echo.
 echo   ---------------------------------------------------------------
 echo    Log in with:
-echo      Login   : 458089169
-echo      Server  : Exness-MT5Real50   search "Exness" in the list
+echo      Login   : 253734295
+echo      Server  : Exness-MT5Real34   search "Exness" in the list
+echo      Account : Standard Cent  (the balance is in cents)
+echo      Gold    : XAUUSDc
 echo      Password: your Exness password
 echo   ---------------------------------------------------------------
 echo.

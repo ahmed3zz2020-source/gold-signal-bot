@@ -10,6 +10,10 @@ REM   It is a REAL order. It costs the spread twice (~60 USC = $0.06)
 REM     and, if gold moves against you, up to the stop (200 USC = $2).
 REM   It uses its own magic number, so it does NOT touch the daily counters.
 REM
+REM   DO NOT RUN IT unless Ahmed asks for it. The normal flow does
+REM   NOT need it: the bridge in DRY_RUN=1 proves the same chain
+REM   without sending a single order.
+REM
 REM  Run DO-IT-ALL.bat and BRIDGE-SELFTEST.bat first.
 REM ============================================================
 setlocal
@@ -18,6 +22,7 @@ cd /d "%~dp0"
 echo.
 echo ============================================================
 echo   REAL ORDER TEST  -  one small order, then it closes it
+echo   Only if Ahmed asks for it. The normal flow does not need it.
 echo ============================================================
 echo.
 

@@ -4,8 +4,9 @@
 // UNIFORM counterfactual outcome: "did price reach +2R before -1R inside the horizon?"
 // A uniform label makes events comparable, so the bot can learn which SETUP TYPES pay.
 //
-// Rules that must never change (0.5% risk, 1.5% daily cap, blackout, 2:1 floor, no stacking)
-// are NOT in this file. Learning may only REMOVE setups, never loosen the risk.
+// Rules that must never change (the risk per trade, the daily cap, the blackout,
+// the 2:1 floor, no stacking) live in config.json - they are NOT in this file.
+// Learning may only REMOVE setups, never loosen the risk.
 
 import fs from 'fs';
 
