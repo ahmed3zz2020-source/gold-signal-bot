@@ -194,25 +194,24 @@ def send_order(mt5, plan, spec):
         "type_time": mt5.ORDER_TIME_GTC,
     }
     ok_codes = (0, getattr(mt5, "TRADE_RETCODE_DONE", 10009), getattr(mt5, "TRADE_RETCODE_PLACED", 10008))
-    chosen = None
     for mode in _filling_modes(mt5):
         req["type_filling"] = mode
         chk = mt5.order_check(req)
         code = chk.retcode if chk else None
         log("order_check", filling=mode, retcode=code, comment=chk.comment if chk else None)
-        if code in ok_codes:
-            chosen = mode
-            break
-    if chosen is None:
-        log("order_check_failed_all_filling_modes",
-            note="مفيش وضع تنفيذ مناسب - الطلب مرفوض من البروكر")
-        return False
-    res = mt5.order_send(req)
-    ok = res is not None and res.retcode == mt5.TRADE_RETCODE_DONE
-    log("order_send", ok=ok, retcode=res.retcode if res else None,
-        comment=res.comment if res else None, order=res.order if res else None,
-        filling=chosen, volume=plan.volume, price=price, sl=plan.sl, tp=plan.tp)
-    return ok
+        if code not in ok_codes:
+            continue
+        res = mt5.order_send(req)
+        ok = res is not None and res.retcode == mt5.TRADE_RETCODE_DONE
+        log("order_send", ok=ok, retcode=res.retcode if res else None,
+            comment=res.comment if res else None, order=res.order if res else None,
+            filling=mode, volume=plan.volume, price=price, sl=plan.sl, tp=plan.tp)
+        if ok:
+            return True
+        # the broker refused this filling mode - try the next one
+    log("order_send_failed_all_filling_modes",
+        note="البروكر رفض كل أوضاع التنفيذ")
+    return False
 
 
 def synthetic_signal(price, direction="long"):

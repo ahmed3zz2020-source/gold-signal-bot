@@ -289,14 +289,34 @@ class McpMt5:
         return "sell"
 
     def order_check(self, req):
+        """The broker check. The MCP tool does not always give a verdict, so an
+        answer without one means INCONCLUSIVE - the broker decides when we send."""
         args = {"symbol": req.get("symbol"), "type": self._side(req),
                 "volume": _f(req.get("volume"))}
         for k in ("sl", "tp"):
             if req.get(k):
                 args[k] = _f(req.get(k))
         out = self._get("trade_check_market_order", args, {}) or {}
-        ok = bool(out.get("ok") or out.get("retcode") in (0, 10009) or out.get("valid"))
-        return Obj(retcode=0 if ok else 10011, comment=out.get("comment") or "",
+        verdict = None
+        for key in ("ok", "success", "valid", "accepted"):
+            if key in out:
+                verdict = bool(out[key])
+                break
+        if verdict is None and out.get("retcode") is not None:
+            try:
+                verdict = int(out.get("retcode")) in (0, 10009)
+            except (TypeError, ValueError):
+                verdict = None
+        if verdict is None and (out.get("error") or out.get("isError")):
+            verdict = False
+        if verdict is None:
+            return Obj(retcode=0,
+                       comment="no verdict in the check - the broker decides",
+                       raw=out)
+        if verdict:
+            return Obj(retcode=0, comment=out.get("comment") or "ok", raw=out)
+        return Obj(retcode=TRADE_RETCODE_ERROR,
+                   comment=out.get("comment") or out.get("error") or "rejected",
                    raw=out)
 
     def order_send(self, req):

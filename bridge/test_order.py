@@ -103,6 +103,12 @@ def main():
     }
     chk = mt5.order_check(req)
     log(f"order_check -> retcode {chk.retcode if chk else None}  {chk.comment if chk else ''}")
+    try:
+        log("   raw check answer:", json.dumps(getattr(chk, "raw", None), ensure_ascii=False)[:500])
+    except Exception:  # noqa: BLE001
+        pass
+    if chk is not None and chk.retcode not in (0, mt5.TRADE_RETCODE_DONE):
+        log("   the pre-check was negative - we still send it, the broker decides")
     res = mt5.order_send(req)
     if res is None or res.retcode != mt5.TRADE_RETCODE_DONE:
         log(f"ORDER REJECTED -> {res.retcode if res else None}  {res.comment if res else ''}")
