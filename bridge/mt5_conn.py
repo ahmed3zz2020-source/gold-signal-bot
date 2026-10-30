@@ -68,6 +68,13 @@ def cfg(name, default=""):
 
 
 # ----------------------------------------------------------------- connect
+def _norm_server(name):
+    """Server names differ in case between Exness' app and the MetaQuotes list
+    (Exness-MT5Real50 vs Exness-MT5ReaL50) - compare them the same way the broker
+    does: letters and digits only, case insensitive."""
+    return "".join(ch for ch in str(name or "").lower() if ch.isalnum())
+
+
 def connect(verbose=True):
     """Connect to MT5 and return (mt5_module, info_dict).
 
@@ -159,7 +166,7 @@ def connect(verbose=True):
                 info["mismatch"] = True
                 info["problems"].append("WRONG ACCOUNT: connected as %s, expected %s"
                                         % (info["login"], exp_login))
-            if exp_server and info["server"] and exp_server.strip() != info["server"].strip():
+            if exp_server and info["server"] and _norm_server(exp_server) != _norm_server(info["server"]):
                 info["mismatch"] = True
                 info["problems"].append("WRONG SERVER: connected to %s, expected %s "
                                         "(the server name is case sensitive)"
