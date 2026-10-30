@@ -18,3 +18,4 @@ bot.pid
 .cloudflared/
 .tunnel-id
 .tunnel-secret
+bridge.jsonl
