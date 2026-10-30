@@ -21,6 +21,31 @@ const authed = (req, token) => {
   return h === `Bearer ${token}` || h === token;
 };
 
+/**
+ * The public signal gateway — the ONLY thing the internet may touch.
+ *
+ * The bridge on the trading machine polls this over HTTPS. It serves exactly one
+ * route (/next-signal) and it always demands the Bearer token, so nothing else
+ * (the health endpoint, the learning table, the counters) is reachable from outside.
+ * The full API stays on the loopback interface.
+ */
+export function startSignalGateway({ port, token, getSignal }) {
+  const server = http.createServer((req, res) => {
+    const url = (req.url || '').split('?')[0];
+    try {
+      if (url !== '/next-signal') return json(res, 404, { error: 'not found' });
+      if (!authed(req, token)) return json(res, 401, { error: 'unauthorized' });
+      const sig = getSignal ? getSignal() : null;
+      if (!sig) return json(res, 204, {});
+      return json(res, 200, sig);
+    } catch (e) {
+      return json(res, 500, { error: String(e && e.message || e) });
+    }
+  });
+  server.listen(port, '127.0.0.1', () => console.log(`[gateway] signal gateway on 127.0.0.1:${port}`));
+  return server;
+}
+
 export function startApi({ port, token, getState, getSignal, getPerf, onKill }) {
   const server = http.createServer(async (req, res) => {
     const url = (req.url || '').split('?')[0];

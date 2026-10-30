@@ -8,7 +8,8 @@ import { analyze, newsBlackout } from './strategy.js';
 import { sendMessage, sendVoice, getUpdates, formatAlert, formatWatch, formatMap, formatSummary, formatTradeUpdate, formatStatus, formatLevels } from './telegram.js';
 import { appendJsonl, readJsonl, evaluateOutcome, signature, HORIZON_MIN } from './journal.js';
 import { buildPerformance, learningVerdict, rankCandidates } from './performance.js';
-import { startApi } from './api.js';
+import { startApi, startSignalGateway } from './api.js';
+import { pushSignal, pushHeartbeat } from './bus.js';
 
 const CFG = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 const TOKEN = process.env.TELEGRAM_TOKEN || process.env.TELEGRAM_BOT_TOKEN || CFG.telegram.token;
@@ -303,6 +304,10 @@ async function evaluate() {
     const news = cal.filter((e) => e.impact === 'High' && e.date &&
       Math.abs(new Date(e.date).getTime() - now()) < 3 * 3600e3)
       .map((e) => `${e.title} ${new Date(e.date).toISOString().slice(11, 16)}Z`).join(' · ');
+    pushSignal({ id, dir: c.dir, grade: c.grade, entry: c.entry, sl: c.sl, tps: c.tps, rrs: c.rrs,
+      risk: Math.abs(c.entry - c.sl), blended: c.blended, mssLevel: c.mssLevel,
+      ts: now(), expiresTs: now() + 120000, symbol: CFG.bridge?.symbol || 'XAUUSD',
+    }).catch(() => {});
     pendingSignal = {
       id, dir: c.dir, grade: c.grade, entry: c.entry, sl: c.sl, tps: c.tps, rrs: c.rrs,
       risk: Math.abs(c.entry - c.sl), blended: c.blended, mssLevel: c.mssLevel,
@@ -394,6 +399,24 @@ async function tick() {
 setInterval(tick, CFG.poll.tickSeconds * 1000);
 setInterval(() => { evaluate().catch((e) => console.error('[eval]', e.message)); }, CFG.poll.evalSeconds * 1000);
 setInterval(() => { save(); }, 60000);
+setInterval(() => {
+  pushHeartbeat({
+    ok: true, ts: now(), price: ctxPrice(), day: state.day,
+    bars: { m1: builder.series(1).length, m15: builder.series(15).length },
+    warm: builder.series(15).length >= (CFG.signals?.m15History ?? 40),
+    inSession: inSession(), cairo: l().hhmm,
+    trades: state.trades.length, dailyR: state.dailyR,
+    journal: journalSeen.size, resolved: perf.rawN, pGlobal: perf.pGlobal,
+  }).catch(() => {});
+}, 60000);
+pushHeartbeat({
+  ok: true, ts: now(), price: ctxPrice(), day: state.day,
+  bars: { m1: builder.series(1).length, m15: builder.series(15).length },
+  warm: builder.series(15).length >= (CFG.signals?.m15History ?? 40),
+  inSession: inSession(), cairo: l().hhmm,
+  trades: state.trades.length, dailyR: state.dailyR,
+  journal: journalSeen.size, resolved: perf.rawN, pGlobal: perf.pGlobal,
+}).catch(() => {});
 setInterval(() => { commands(); }, 15000);
 if (process.env.BRIDGE_TOKEN) {
   startApi({
@@ -420,6 +443,21 @@ if (process.env.BRIDGE_TOKEN) {
     getPerf: () => perf,
     onKill: async () => { killed = true; await notify('⛔ إيقاف التداول — المحرك متوقف والأوامر الجديدة مرفوضة'); },
   });
+  // the public gateway (loopback only — the tunnel in front of it is what faces the internet)
+  const gwPort = +(process.env.SIGNAL_PORT || 8081);
+  if (process.env.BRIDGE_TOKEN) {
+    try {
+      startSignalGateway({
+        port: gwPort, token: process.env.BRIDGE_TOKEN,
+        getSignal: () => {
+          if (killed || !pendingSignal) return null;
+          if (pendingSignal.expiresTs < Date.now()) { pendingSignal = null; return null; }
+          const s = pendingSignal; pendingSignal = null;   // one shot: the bridge takes it or it expires
+          return s;
+        },
+      });
+    } catch (e) { console.error('[gateway]', e.message); }
+  }
 }
 function ctxPrice() { try { const a = analyze(builder, CFG, now()); return a.ok ? a.ctx.price : null; } catch { return null; } }
 function lastBias() { try { const a = analyze(builder, CFG, now()); return a.ok ? a.ctx.bias : null; } catch { return null; } }
