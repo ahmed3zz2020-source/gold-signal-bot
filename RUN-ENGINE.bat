@@ -39,12 +39,28 @@ if exist "%NODE_EXE%" (
 )
 
 echo   Node.js not found - downloading a portable copy one time, ~30 MB...
+echo   this can take a few minutes on a slow connection.
 if not exist "%NODE_DIR%" mkdir "%NODE_DIR%" >nul 2>&1
-powershell -NoProfile -Command "$u='https://nodejs.org/dist/%NODE_VERSION%/node-%NODE_VERSION%-win-x64.zip'; $f=Join-Path $env:TEMP 'node.zip'; Invoke-WebRequest -Uri $u -OutFile $f; Expand-Archive -Path $f -DestinationPath '%NODE_DIR%' -Force; Remove-Item $f" >nul 2>&1
+
+REM ---- try 1: PowerShell with TLS 1.2 forced (PowerShell 5.1 defaults to TLS 1.0) ----
+powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11; $u='https://nodejs.org/dist/%NODE_VERSION%/node-%NODE_VERSION%-win-x64.zip'; $f=Join-Path $env:TEMP 'node.zip'; Invoke-WebRequest -Uri $u -OutFile $f -UseBasicParsing; Expand-Archive -Path $f -DestinationPath '%NODE_DIR%' -Force; Remove-Item $f -ErrorAction SilentlyContinue" >nul 2>&1
+
+if not exist "%NODE_EXE%" (
+  echo   trying the second way - curl...
+  curl.exe -L --retry 2 --connect-timeout 25 -o "%TEMP%\node2.zip" "https://nodejs.org/dist/%NODE_VERSION%/node-%NODE_VERSION%-win-x64.zip" >nul 2>&1
+  if exist "%TEMP%\node2.zip" (
+    powershell -NoProfile -Command "Expand-Archive -Path '%TEMP%\node2.zip' -DestinationPath '%NODE_DIR%' -Force" >nul 2>&1
+    del "%TEMP%\node2.zip" >nul 2>&1
+  )
+)
 
 if not exist "%NODE_EXE%" (
   echo.
-  echo   the download failed - install Node.js 20+ from nodejs.org and run this again
+  echo   the download failed twice.
+  echo   OPTION A - open this link in the browser and save it:
+  echo     https://nodejs.org/dist/%NODE_VERSION%/node-%NODE_VERSION%-win-x64.zip
+  echo   then put the file in the tools\node folder and unzip it there.
+  echo   OPTION B - tell me and I will send the bot in 6 small parts.
   echo.
   pause
   exit /b 1
