@@ -114,7 +114,11 @@ def main():
     time.sleep(HOLD_SECONDS)
 
     pos = mt5.positions_get(symbol=symbol)
-    pos = [p for p in (pos or []) if p.magic == TEST_MAGIC]
+    # the MCP order tool has no magic field, so we find our own position
+    # by the symbol + the comment we sent with it
+    pos = [p for p in (pos or [])
+           if (getattr(p, 'comment', '') or '').startswith('goldbot-test')
+           or getattr(p, 'magic', 0) == TEST_MAGIC]
     if not pos:
         log("no open position (it may have been closed by the stop/target already)")
     else:

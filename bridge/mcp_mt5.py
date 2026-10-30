@@ -75,6 +75,19 @@ def _call(client, name, args=None):
 class McpMt5:
     """The drop-in replacement for the MetaTrader5 python module."""
 
+    # the constants the real package exposes at module level
+    TRADE_RETCODE_DONE = TRADE_RETCODE_DONE
+    TRADE_RETCODE_ERROR = TRADE_RETCODE_ERROR
+    ORDER_TYPE_BUY = ORDER_TYPE_BUY
+    ORDER_TYPE_SELL = ORDER_TYPE_SELL
+    TRADE_ACTION_DEAL = TRADE_ACTION_DEAL
+    ORDER_TIME_GTC = ORDER_TIME_GTC
+    ORDER_FILLING_IOC = ORDER_FILLING_IOC
+    ORDER_FILLING_FOK = ORDER_FILLING_FOK
+    ORDER_FILLING_RETURN = ORDER_FILLING_RETURN
+    MARGIN_MODE_RETAIL_NETTING = MARGIN_MODE_RETAIL_NETTING
+    MARGIN_MODE_RETAIL_HEDGING = MARGIN_MODE_RETAIL_HEDGING
+
     def __init__(self, client):
         self.client = client
         self.last_error_tuple = (0, "")
@@ -287,6 +300,22 @@ class McpMt5:
                    raw=out)
 
     def order_send(self, req):
+        # a close request (it carries a position ticket) goes through the
+        # dedicated close tool - trade_send_market_order would OPEN a new one
+        ticket = req.get("position") or req.get("ticket")
+        if ticket:
+            args = {"symbol": req.get("symbol"),
+                    "position_ticket": int(ticket)}
+            out = self._get("trade_close_single_position", args, {}) or {}
+            ok = bool(out.get("ok")) or out.get("retcode") in (0, 10009)
+            if not ok:
+                return Obj(retcode=TRADE_RETCODE_ERROR,
+                           comment=out.get("comment") or out.get("error") or "close rejected",
+                           order=None, price=None, raw=out)
+            return Obj(retcode=TRADE_RETCODE_DONE,
+                       comment=out.get("comment") or "closed",
+                       order=out.get("ticket") or int(ticket),
+                       price=out.get("price"), raw=out)
         args = {"symbol": req.get("symbol"), "type": self._side(req),
                 "volume": _f(req.get("volume"))}
         for k in ("sl", "tp"):
