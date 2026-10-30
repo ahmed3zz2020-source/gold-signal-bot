@@ -219,8 +219,11 @@ function sessionStats() {
 async function evaluate() {
   rolloverDay();
   const st0 = sessionStats();
-  // the daily summary goes out regardless of the gate's state
-  if (!state.dailySummarySent && toMin(l().hhmm) >= toMin(CFG.session.endCairo)) {
+  // A recycled container used to send an empty summary ("0.0 / 0 trades") because the
+  // flag lived in a file that died with the container. Two guards now: the flag is
+  // restored with the state, and a session with NO bars sends nothing at all.
+  const haveSessionData = st0.close != null && st0.dayHigh != null;
+  if (!state.dailySummarySent && haveSessionData && toMin(l().hhmm) >= toMin(CFG.session.endCairo)) {
     state.dailySummarySent = true;
     save();            // persist the flag BEFORE sending: a restart can never re-send it
     if (!state.sessionEndAt) state.sessionEndAt = now();
@@ -393,6 +396,13 @@ if (process.env.BRIDGE_TOKEN) {
     getState: () => ({
       price: ctxPrice(), bias: lastBias(), trades: state.trades.length, dailyR: state.dailyR,
       day: state.day, killed, pendingSignal: pendingSignal ? pendingSignal.id : null,
+      bars: {
+        m1: builder.series(1).length, m5: builder.series(5).length,
+        m15: builder.series(15).length, m60: builder.series(60).length,
+      },
+      warm: builder.series(15).length >= (CFG.signals?.m15History ?? 40),
+      session: { inSession: inSession(), cairo: l().hhmm },
+      learning: { journal: journalSeen.size, resolved: perf.rawN, pGlobal: perf.pGlobal },
     }),
     getSignal: () => {
       if (killed) return null;

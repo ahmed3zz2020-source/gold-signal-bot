@@ -12,3 +12,5 @@ __pycache__/
 bridge-report.txt
 .bridge-token
 bot.pid
+.kv-synced-at
+.kv-restore.tmp

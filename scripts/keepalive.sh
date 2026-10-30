@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-# keepalive.sh — the heartbeat of the gold signal engine.
+# keepalive.sh — the heartbeat of the gold signal engine.   (v2 · 30 Oct 2026)
 #
-# Why this script exists:
-#   The /workspace volume is WIPED between sessions (every new session gets a fresh,
-#   empty volume: /<session-id>/workspace). The container itself survives for hours.
-#   So the engine must NOT live in /workspace — its state (state.json, history.json,
-#   journal.jsonl, outcomes.jsonl) would vanish and the engine would restart cold
-#   every time: no warm-up, no learning, and the daily summary would be re-sent
-#   over and over (spam). /opt/gold-signal-bot is container-local and survives.
+# WHY v2 EXISTS
+#   /opt is container-local: when the container is recycled, /opt is wiped. The engine
+#   used to keep everything there (bars, journal, trading counters), so every recycled
+#   container came back COLD — no bars (it needs ~10h of live ticks before the gate can
+#   run), no learning journal, no counters — and the daily summary was sent again.
 #
-# What it does (safe to run every few minutes, no side effects if all is well):
-#   1. makes sure the project exists in the persistent folder (clones it if not)
-#   2. makes sure the bridge token is in place
-#   3. starts the engine ONLY if it is not running already
-#   4. waits until /health answers 200
+#   Now the state also lives in a Cloudflare KV namespace, which is OUTSIDE the
+#   container, and it is restored on every boot:
+#     state.json      trades · dailyR · firedKeys · the daily-summary flag
+#     journal.jsonl   every structure the gate saw (the learning's raw material)
+#     outcomes.jsonl  the judged results (the learning table)
+#     history.json    the M1 bars (this is what makes the engine warm again)
 #
-# Exit code 0 = the engine is up and healthy. 1 = it could not be brought up.
+#   Safe to run every few minutes: if the engine is healthy it only re-uploads the
+#   state and exits.
+#
+# EXIT: 0 = the engine is up and the state is saved. 1 = it could not be brought up.
 
 set -uo pipefail
 
@@ -27,8 +29,68 @@ LOGFILE="$REPO/bot.log"
 PIDFILE="$REPO/bot.pid"
 WORKSPACE_TOKEN="/workspace/bridge-token.txt"
 
+# ---- the durable store (Cloudflare KV) — lives outside the container ----------
+CF_ACCOUNT="${CF_ACCOUNT:-74e046678adabf0706024b97b205882b}"
+CF_NS="${CF_NS:-f39b746eed6c4671959bc710d82fcbc1}"
+CF_BASE="https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/storage/kv/namespaces/${CF_NS}"
+KV_FILES="state.json journal.jsonl outcomes.jsonl history.json"
+KV_HISTORY_INTERVAL="${KV_HISTORY_INTERVAL:-600}"   # seconds between history uploads
+SYNC_MARKER="$REPO/.kv-synced-at"
+
 say() { printf '%s\n' "$*"; }
 die() { say "FAIL: $*"; exit 1; }
+
+# ------------------------------------------------------------------ the store
+kv_ready() { [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; }
+
+kv_get() {                       # key -> stdout
+  kv_ready || return 1
+  curl -s -m 60 "$CF_BASE/values/$1" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" 2>/dev/null
+}
+
+kv_put() {                       # key file
+  kv_ready || return 1
+  curl -s -m 120 -X PUT "$CF_BASE/values/$1" \
+       -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+       --data-binary "@$2" >/dev/null 2>&1
+}
+
+# Pull the state back after a container recycle. A local copy is always fresher than
+# the store, so only files that are missing locally are restored.
+restore_state() {
+  if ! kv_ready; then say "warn: no CLOUDFLARE_API_TOKEN in this session — the state stays local"; return 0; fi
+  local restored="" tmp="$REPO/.kv-restore.tmp"
+  for f in $KV_FILES; do
+    [ -s "$REPO/$f" ] && continue
+    if kv_get "$f" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+      if grep -q '"success":false' "$tmp" 2>/dev/null; then rm -f "$tmp"; continue; fi
+      mv "$tmp" "$REPO/$f" && restored="$restored $f"
+    else
+      rm -f "$tmp"
+    fi
+  done
+  [ -n "$restored" ] && say "restored from the durable store:$restored"
+  return 0
+}
+
+# Upload the state. history.json is big and changes every minute, so it goes up on a
+# slower cadence; the small files go up every time.
+sync_state() {
+  kv_ready || return 0
+  local now_s last=0
+  now_s=$(date +%s)
+  if [ -f "$SYNC_MARKER" ]; then last=$(cat "$SYNC_MARKER" 2>/dev/null || echo 0); fi
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  for f in $KV_FILES; do
+    [ -f "$REPO/$f" ] || continue
+    if [ "$f" = "history.json" ] && [ $((now_s - last)) -lt "$KV_HISTORY_INTERVAL" ]; then
+      continue
+    fi
+    kv_put "$f" "$REPO/$f" || say "warn: could not upload $f"
+  done
+  echo "$now_s" > "$SYNC_MARKER"
+  return 0
+}
 
 # ── 1. the project must be in a folder that survives the session ──────────────
 if [ ! -f "$REPO/src/index.js" ]; then
@@ -42,7 +104,6 @@ fi
 cd "$REPO" || die "no $REPO"
 
 # ── 2. the bridge token (the shared secret with the MT5 bridge) ───────────────
-# The API only starts when BRIDGE_TOKEN is set, so the token is not optional.
 if [ -z "${BRIDGE_TOKEN:-}" ]; then
   if [ -f "$REPO/.bridge-token" ]; then
     BRIDGE_TOKEN="$(cat "$REPO/.bridge-token")"
@@ -57,7 +118,6 @@ else
   printf '%s' "$BRIDGE_TOKEN" > "$REPO/.bridge-token"
   chmod 600 "$REPO/.bridge-token"
 fi
-# the cron job's original start command reads the token from the workspace path
 if [ -f "$WORKSPACE_TOKEN" ] && [ "$(cat "$WORKSPACE_TOKEN")" != "$BRIDGE_TOKEN" ]; then
   printf '%s' "$BRIDGE_TOKEN" > "$WORKSPACE_TOKEN"
   chmod 600 "$WORKSPACE_TOKEN"
@@ -66,7 +126,7 @@ fi
 # ── 3. the telegram credentials (the engine is useless without them) ──────────
 # The telegram token must NEVER be written to a file. If this session does not have
 # it in the environment, take it from the engine that is already running (its own
-# /proc environment) — that is the last copy that exists without writing it down.
+# /proc environment) — the last copy that exists without writing it down.
 if [ -z "${TELEGRAM_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
   for pid in $(pgrep -f "node src/index.js" 2>/dev/null); do
     [ "$pid" = "$$" ] && continue
@@ -89,6 +149,7 @@ port_pid() { lsof -ti "tcp:${PORT}" -sTCP:LISTEN 2>/dev/null | head -1; }
 
 if [ "$(health_code)" = "200" ]; then
   say "OK — the engine is already up and /health answers 200"
+  sync_state
   exit 0
 fi
 
@@ -99,14 +160,17 @@ if [ -n "$(port_pid)" ]; then
   sleep 2
 fi
 
-# ── 5. start it (detached, survives the shell) ────────────────────────────────
+# ── 5. restore the state BEFORE the engine boots ─────────────────────────────
+restore_state
+
+# ── 6. start it (detached, survives the shell) ────────────────────────────────
 say "starting the engine..."
 BRIDGE_TOKEN="$BRIDGE_TOKEN" PORT="$PORT" \
   TELEGRAM_TOKEN="$TELEGRAM_TOKEN" TELEGRAM_CHAT_ID="$TELEGRAM_CHAT_ID" \
   setsid nohup node src/index.js >> "$LOGFILE" 2>&1 < /dev/null &
 echo $! > "$PIDFILE"
 
-# ── 6. wait for it ───────────────────────────────────────────────────────────
+# ── 7. wait for it ───────────────────────────────────────────────────────────
 code="000"
 for _ in $(seq 1 30); do
   sleep 1
@@ -116,6 +180,7 @@ done
 
 if [ "$code" = "200" ]; then
   say "RESTARTED — /health answers 200"
+  sync_state
   exit 0
 fi
 
