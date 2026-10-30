@@ -95,15 +95,14 @@ def connect(verbose=True):
       mismatch      bool   - connected to a DIFFERENT account than configured
       problems      list[str]
     """
+    # the MCP path below does NOT need the MetaTrader5 package, so a missing
+    # package is not fatal - the old IPC path is only the fallback.
+    mt5 = None
     try:
         import MetaTrader5 as mt5
     except ImportError:
         if verbose:
-            print("MetaTrader5 package is not installed.")
-            print("  py -m venv .venv")
-            print("  .venv\\Scripts\\python.exe -m pip install --upgrade pip MetaTrader5")
-        return None, {"ok": False, "connected": False, "mode": "none",
-                      "problems": ["MetaTrader5 package missing"], "mismatch": False}
+            print("   the MetaTrader5 package is not installed - the MCP server will be used")
 
     env_file = load_dotenv()
     login_s = cfg("MT5_LOGIN")
@@ -182,6 +181,10 @@ def connect(verbose=True):
             info["problems"].extend(minfo.get("problems") or [])
     except Exception as exc:                                    # noqa: BLE001
         info["problems"].append("mcp adapter raised: %s" % exc)
+
+    if mt5 is None:
+        info["problems"].append("the MetaTrader5 package is missing and the MCP server did not answer")
+        return None, info
 
     attempts = []
 

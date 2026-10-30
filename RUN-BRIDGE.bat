@@ -18,8 +18,14 @@ echo   GOLD BRIDGE  -  the part that talks to MetaTrader 5
 echo ============================================================
 echo.
 
-if not exist ".venv\Scripts\python.exe" (
-  echo   .venv is missing - run DO-IT-ALL.bat first.
+set "PY="
+if exist ".venv\Scripts\python.exe" set "PY=.venv\Scripts\python.exe"
+if not defined PY (
+  where python >nul 2>&1
+  if not errorlevel 1 set "PY=python"
+)
+if not defined PY (
+  echo   Python was not found on this computer - run DO-IT-ALL.bat once.
   echo.
   pause
   exit /b 1
@@ -46,7 +52,7 @@ echo   leaving this window open keeps the bridge running.
 echo ---------------------------------------------------------------
 echo.
 
-".venv\Scripts\python.exe" bridge\mt5_bridge.py
+"%PY%" bridge\mt5_bridge.py
 
 echo.
 echo   the bridge stopped.

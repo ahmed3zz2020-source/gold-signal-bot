@@ -26,8 +26,14 @@ if not exist ".env" (
   pause
   exit /b 1
 )
-if not exist ".venv\Scripts\python.exe" (
-  echo   .venv is missing - run DO-IT-ALL.bat first.
+set "PY="
+if exist ".venv\Scripts\python.exe" set "PY=.venv\Scripts\python.exe"
+if not defined PY (
+  where python >nul 2>&1
+  if not errorlevel 1 set "PY=python"
+)
+if not defined PY (
+  echo   Python was not found on this computer - run DO-IT-ALL.bat once.
   echo.
   pause
   exit /b 1
@@ -48,7 +54,7 @@ echo   MetaTrader 5 is running.
 
 REM ---- 2) the MCP server must answer ----
 echo   checking the MT5 connection...
-".venv\Scripts\python.exe" -c "import sys;sys.path.insert(0,'bridge');from mcp_client import McpClient;import os;c=McpClient(os.environ.get('MT5_MCP_URL','http://127.0.0.1:22346/mcp'),os.environ.get('MT5_MCP_KEY',''));c.initialize();a=c.call('get_trading_account_info',{});t=' | '.join(x.get('text','') for x in (a.get('content') or []));print(t[:600])" > "mt5-check.txt" 2>&1
+"%PY%" -c "import sys;sys.path.insert(0,'bridge');from mcp_client import McpClient;import os;c=McpClient(os.environ.get('MT5_MCP_URL','http://127.0.0.1:22346/mcp'),os.environ.get('MT5_MCP_KEY',''));c.initialize();a=c.call('get_trading_account_info',{});t=' | '.join(x.get('text','') for x in (a.get('content') or []));print(t[:600])" > "mt5-check.txt" 2>&1
 if errorlevel 1 (
   echo   the MT5 MCP server did not answer - see mt5-check.txt
   type "mt5-check.txt"
@@ -88,7 +94,7 @@ echo   leave this window open. To stop, close it.
 echo.
 echo ---------------------------------------------------------------
 echo.
-".venv\Scripts\python.exe" bridge\mt5_bridge.py
+"%PY%" bridge\mt5_bridge.py
 
 echo.
 echo   the bot stopped.
