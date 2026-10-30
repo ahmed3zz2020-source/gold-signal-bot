@@ -121,6 +121,10 @@ const LC = { ...(CFG.learning || {}) };
 let perf = { pGlobal: LC.priorP ?? 0.4, n: 0, rawN: 0, buckets: [], opts: LC };
 const journalSeen = new Set();
 let pendingSignal = null;      // the next signal the bridge may take (published once)
+let lastSignal = null;         // the last signal we published (for the outside to see)
+const lastSignalInfo = () => (lastSignal
+  ? { id: lastSignal.id, dir: lastSignal.dir, entry: lastSignal.entry, sl: lastSignal.sl, ts: lastSignal.ts }
+  : null);
 let killed = false;             // the /kill switch
 let lastResolve = 0, lastPerf = 0;
 
@@ -315,6 +319,7 @@ async function evaluate() {
     const news = cal.filter((e) => e.impact === 'High' && e.date &&
       Math.abs(new Date(e.date).getTime() - now()) < 3 * 3600e3)
       .map((e) => `${e.title} ${new Date(e.date).toISOString().slice(11, 16)}Z`).join(' · ');
+    lastSignal = { id, dir: c.dir, grade: c.grade, entry: c.entry, sl: c.sl, ts: now() };
     pushSignal({ id, dir: c.dir, grade: c.grade, entry: c.entry, sl: c.sl, tps: c.tps, rrs: c.rrs,
       risk: Math.abs(c.entry - c.sl), blended: c.blended, mssLevel: c.mssLevel,
       ts: now(), expiresTs: now() + 120000, symbol: CFG.bridge?.symbol || 'XAUUSD',
@@ -394,9 +399,25 @@ if (seed && fs.existsSync(seed)) {
 }
 console.log(`[boot] m15=${builder.series(15).length} token=${TOKEN ? 'yes' : 'NO'} chat=${CHAT || 'NO'}`);
 
+// A closed market (the weekend) keeps the feed answering with the SAME price. Candles
+// built on a frozen feed are flat, so the ATR collapses to zero and the risk maths
+// divides by zero - the gate would be reading garbage. A frozen feed means: no candle.
+const STALE_MOVE = 0.10;        // dollars
+const STALE_AFTER_MIN = 45;     // minutes without a real move
+let lastPrice = null, lastMoveAt = Date.now(), staleLogged = false;
+
 async function tick() {
   try {
     const s = await fetchSpot();
+    if (lastPrice !== null && Math.abs(s.mid - lastPrice) < STALE_MOVE) {
+      if (Date.now() - lastMoveAt > STALE_AFTER_MIN * 60000) {
+        if (!staleLogged) { console.log('[tick] the feed is frozen (the market is closed) - no candles are built'); staleLogged = true; }
+        return;
+      }
+    } else {
+      lastPrice = s.mid; lastMoveAt = Date.now();
+      if (staleLogged) { console.log('[tick] the feed is live again'); staleLogged = false; }
+    }
     builder.push(now(), s.mid);
     builder.prune(9000);
     const d = new Date(now());
@@ -429,6 +450,7 @@ setInterval(() => {
     warm: builder.series(15).length >= (CFG.signals?.m15History ?? 40),
     inSession: inSession(), cairo: l().hhmm,
     trades: state.trades.length, dailyR: state.dailyR,
+    lastSignal: lastSignalInfo(),
     journal: journalSeen.size, resolved: perf.rawN, pGlobal: perf.pGlobal,
   }).catch(() => {});
 }, 60000);
@@ -438,6 +460,7 @@ pushHeartbeat({
   warm: builder.series(15).length >= (CFG.signals?.m15History ?? 40),
   inSession: inSession(), cairo: l().hhmm,
   trades: state.trades.length, dailyR: state.dailyR,
+  lastSignal: lastSignalInfo(),
   journal: journalSeen.size, resolved: perf.rawN, pGlobal: perf.pGlobal,
 }).catch(() => {});
 setInterval(() => { commands(); }, 15000);
