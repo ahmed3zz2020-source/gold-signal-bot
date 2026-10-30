@@ -28,3 +28,19 @@ export async function pushSignal(sig) { return post('/signal', sig); }
 
 /** Tell the outside that the engine is alive, warm and where it is. */
 export async function pushHeartbeat(state) { return post('/heartbeat', state); }
+
+/** The real account the bridge is connected to (balance, currency, symbol). */
+export async function pullAccount() {
+  if (!TOKEN || !BUS_URL) return null;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    const r = await fetch(`${BUS_URL}/account`, {
+      headers: { Authorization: `Bearer ${TOKEN}` }, signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (!r.ok) return null;
+    const j = await r.json();
+    return (j && j.login != null) ? j : null;
+  } catch { return null; }
+}

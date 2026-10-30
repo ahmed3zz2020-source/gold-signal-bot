@@ -43,6 +43,18 @@ export default {
         await env.BUS.put('engine-status', JSON.stringify(body), { expirationTtl: 300 });
         return json({ ok: true });
       }
+      // the bridge reports the real account (balance, currency, symbol) so the engine
+      // never has to guess the account size - it only displays the money.
+      if (url.pathname === '/account' && req.method === 'POST') {
+        const body = await req.json().catch(() => null);
+        if (!body || body.login == null) return json({ error: 'bad account' }, 400);
+        await env.BUS.put('account', JSON.stringify(body), { expirationTtl: 86400 });
+        return json({ ok: true });
+      }
+      if (url.pathname === '/account' && req.method === 'GET') {
+        const a = await kvGetJson(env, 'account');
+        return json(a || { ok: false, note: 'the bridge has not reported yet' });
+      }
       if (url.pathname === '/status' && req.method === 'GET') {
         const st = await kvGetJson(env, 'engine-status');
         return json(st || { ok: false, note: 'no heartbeat yet' });

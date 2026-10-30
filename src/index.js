@@ -9,7 +9,7 @@ import { sendMessage, sendVoice, getUpdates, formatAlert, formatWatch, formatMap
 import { appendJsonl, readJsonl, evaluateOutcome, signature, HORIZON_MIN } from './journal.js';
 import { buildPerformance, learningVerdict, rankCandidates } from './performance.js';
 import { startApi, startSignalGateway } from './api.js';
-import { pushSignal, pushHeartbeat } from './bus.js';
+import { pushSignal, pushHeartbeat, pullAccount } from './bus.js';
 
 const CFG = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 const TOKEN = process.env.TELEGRAM_TOKEN || process.env.TELEGRAM_BOT_TOKEN || CFG.telegram.token;
@@ -23,11 +23,20 @@ const state = {
   lastWatch: 0, dailySummarySent: false, morningSent: false, lastUpdateId: 0,
 };
 
+// The real account, as the bridge on the trading machine reports it. The engine never
+// guesses the balance: until the bridge reports, we fall back to the configured value.
+let acct = { usd: CFG.risk.accountUsd, login: null, currency: null, symbol: null, updatedAt: 0 };
+const riskMoney = () => acct.usd * (CFG.risk.perTradePct / 100);
+
 function load() {
   try { Object.assign(state, JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))); } catch {}
   try {
     const h = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
     for (const [k, v] of Object.entries(h.bars || {})) state.bars[k] = v;
+  } catch {}
+  try {
+    const a = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    if (a && a.account && a.account.usd) acct = { ...acct, ...a.account };
   } catch {}
 }
 function save() {
@@ -35,6 +44,7 @@ function save() {
     trades: state.trades, day: state.day, dailyR: state.dailyR,
     firedKeys: state.firedKeys, dailySummarySent: state.dailySummarySent,
     morningSent: state.morningSent, lastUpdateId: state.lastUpdateId || 0,
+    account: acct,
   }));
   const keys = Object.keys(state.bars).sort();
   const keep = {};
@@ -174,7 +184,7 @@ function journalCandidate(c, cls) {
 
 // ---------------------------------------------------------------- trade tracking
 function checkOpenTrades(price) {
-  const money = CFG.risk.accountUsd * (CFG.risk.perTradePct / 100);
+  const money = riskMoney();
   for (const t of state.trades) {
     if (t.state === 'closed' || t.state === 'stopped') continue;
     const hitTp = (lvl) => (t.dir === 'long' ? price >= lvl : price <= lvl);
@@ -314,7 +324,7 @@ async function evaluate() {
       ts: now(), expiresTs: now() + 120000, symbol: CFG.bridge?.symbol || 'XAUUSD',
     };
     await notify(formatAlert(c, {
-      accountUsd: CFG.risk.accountUsd, riskPct: CFG.risk.perTradePct,
+      accountUsd: acct.usd, riskPct: CFG.risk.perTradePct,
       timeText: `${t.hhmm} القاهرة`,
       setupText: c.sweep ? `سحب سيولة فوق ${c.mssLevel.toFixed(1)} + كسر + رجوع` : `كسر ${c.mssLevel.toFixed(1)} ورجوع للمنطقة`,
       newsText: news || '',
@@ -399,6 +409,18 @@ async function tick() {
 setInterval(tick, CFG.poll.tickSeconds * 1000);
 setInterval(() => { evaluate().catch((e) => console.error('[eval]', e.message)); }, CFG.poll.evalSeconds * 1000);
 setInterval(() => { save(); }, 60000);
+setInterval(async () => {
+  const a = await pullAccount();
+  if (a && a.balance != null) {
+    // a cent account reports its balance in cents - convert it once, here
+    const cents = a.cent_account || String(a.currency || '').toUpperCase().endsWith('C');
+    const usd = cents ? Number(a.balance) / 100 : Number(a.balance);
+    if (Number.isFinite(usd) && usd > 0) {
+      acct = { usd, login: a.login, currency: a.currency, symbol: a.symbol, updatedAt: Date.now() };
+      save();
+    }
+  }
+}, 60000);
 setInterval(() => {
   pushHeartbeat({
     ok: true, ts: now(), price: ctxPrice(), day: state.day,
@@ -432,6 +454,7 @@ if (process.env.BRIDGE_TOKEN) {
       warm: builder.series(15).length >= (CFG.signals?.m15History ?? 40),
       session: { inSession: inSession(), cairo: l().hhmm },
       learning: { journal: journalSeen.size, resolved: perf.rawN, pGlobal: perf.pGlobal },
+      account: acct,
     }),
     getSignal: () => {
       if (killed) return null;

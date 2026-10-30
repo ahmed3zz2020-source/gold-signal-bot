@@ -87,6 +87,42 @@ def http_json(url, method="GET", body=None):
         return r.status, (json.loads(raw) if raw else {})
 
 
+def post_json(url, payload, timeout=15):
+    """POST JSON. Used to tell the engine the real account (balance/currency/symbol)
+    so it never has to guess the account size."""
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=data, method="POST",
+                                 headers={"Content-Type": "application/json",
+                                          "Authorization": f"Bearer {BRIDGE_TOKEN}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, (json.loads(r.read().decode() or "{}"))
+    except Exception as e:
+        return 0, {"error": str(e)}
+
+
+def push_account(acc, symbol):
+    """Report the account the bridge is really connected to (read-only info)."""
+    if not BRIDGE_TOKEN or not acc:
+        return
+    cur = getattr(acc, "currency", "")
+    cent = cur.upper().endswith("C") and len(cur.upper()) == 3
+    payload = {
+        "login": getattr(acc, "login", None),
+        "server": MT5_SERVER,
+        "currency": cur,
+        "balance": float(getattr(acc, "balance", 0) or 0),
+        "equity": float(getattr(acc, "equity", 0) or 0),
+        "leverage": float(getattr(acc, "leverage", 0) or 0),
+        "cent_account": cent,
+        "symbol": symbol,
+        "ts": int(time.time() * 1000),
+    }
+    st, _ = post_json(f"{ENGINE_URL}/account", payload)
+    if st == 200:
+        _state["account_pushed_at"] = payload["ts"]
+
+
 def fetch_signal():
     try:
         st, body = http_json(f"{ENGINE_URL}/next-signal")
@@ -331,6 +367,12 @@ def main():
                     point_value_per_lot=spec["point_value"], volume_min=spec["volume_min"],
                     volume_step=spec["volume_step"], point=spec.get("point"),
                     fixed_volume=FIXED_VOLUME, max_trades_per_day=MAX_TRADES_PER_DAY)
+            # tell the engine the real account (balance + currency) every 5 minutes
+            if acc and int(time.time() * 1000) - int(_state.get("account_pushed_at", 0) or 0) > 300000:
+                try:
+                    push_account(acc, MT5_SYMBOL)
+                except Exception as e:
+                    log("account_push_failed", error=str(e))
 
             # ⛔ the daily counters come from the BROKER (history), not from a local
             #    counter that a restart would wipe. If the history is unavailable we keep
