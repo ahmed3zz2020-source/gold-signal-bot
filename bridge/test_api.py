@@ -34,6 +34,12 @@ def try_one(tag, **kw):
         print(f"   raised: {e}")
         return False
     print(f"   initialize -> {bool(ok)}   last_error={mt5.last_error()}")
+    ti = mt5.terminal_info()
+    if ti:
+        print(f"   terminal: build={getattr(ti, 'build', '?')} "
+              f"connected={getattr(ti, 'connected', '?')} "
+              f"tradeapi_disabled={getattr(ti, 'tradeapi_disabled', '?')} "
+              f"path={getattr(ti, 'path', '?')}")
     acc = mt5.account_info()
     if acc:
         print(f"   -> CONNECTED: login={acc.login} server={acc.server} "
@@ -80,14 +86,22 @@ def main():
 
     print()
     print("=" * 70)
-    print("NONE of the three worked. The usual reasons:")
-    print("  1) MetaTrader 5 is NOT running right now")
-    print("     -> open it, log in, and run this again")
-    print("  2) 'Allow algorithmic trading' is OFF")
-    print("     -> Tools > Options > Expert Advisors > tick it")
+    print("NONE of the three worked. That is almost always one of these:")
+    print()
+    print("  1) Tools > Options > Expert Advisors:")
+    print("       tick  'Allow algorithmic trading'")
+    print("       tick  'Python Integration'   <-- the new builds need this one")
+    print("       untick 'Disable algorithmic trading via external Python API'")
+    print("     then RESTART MetaTrader 5 - File > Exit, open it again, log in")
+    print()
+    print("  2) MetaTrader 5 build 6230 and newer has a known bug with the Python")
+    print("     API - mt5.initialize returns -10005 IPC timeout. The setting above")
+    print("     is what MetaQuotes users report making it work.")
+    print()
     print("  3) MetaTrader 5 runs as Administrator and this script does not")
-    print("     -> right-click this .bat > Run as administrator (or the other way round)")
-    print("  4) a firewall/antivirus is blocking the local port")
+    print("     -> right-click the .bat > Run as administrator")
+    print()
+    print("  4) a firewall or antivirus is blocking the local port")
     print("     -> allow terminal64.exe and python.exe on the private network")
     print("=" * 70)
     return 2
