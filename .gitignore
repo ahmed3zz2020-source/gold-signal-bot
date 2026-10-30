@@ -10,3 +10,5 @@ outcomes.jsonl
 __pycache__/
 *.pyc
 bridge-report.txt
+.bridge-token
+bot.pid
