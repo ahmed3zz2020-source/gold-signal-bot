@@ -76,9 +76,17 @@ def log(event, **kw):
     print(json.dumps(rec, ensure_ascii=False), flush=True)
 
 
+# ⛔ The User-Agent MATTERS: Python's default (Python-urllib/3.x) is blocked by
+# Cloudflare's edge with 403 - the bridge would sit there "working" and never
+# receive a single signal. Send a normal browser-like agent.
+UA = "Mozilla/5.0 (compatible; gold-signal-bot/1.0; Windows NT 10.0)"
+
+
 def http_json(url, method="GET", body=None):
     req = urllib.request.Request(url, method=method)
     req.add_header("Authorization", f"Bearer {BRIDGE_TOKEN}")
+    req.add_header("User-Agent", UA)
+    req.add_header("Accept", "application/json")
     if body is not None:
         req.data = json.dumps(body).encode()
         req.add_header("Content-Type", "application/json")
@@ -93,7 +101,9 @@ def post_json(url, payload, timeout=15):
     data = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=data, method="POST",
                                  headers={"Content-Type": "application/json",
-                                          "Authorization": f"Bearer {BRIDGE_TOKEN}"})
+                                          "Authorization": f"Bearer {BRIDGE_TOKEN}",
+                                          "User-Agent": UA,
+                                          "Accept": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, (json.loads(r.read().decode() or "{}"))
@@ -130,7 +140,10 @@ def fetch_signal():
             return None
         return body
     except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
+        if e.code == 403:
+            log("blocked_403", status=e.code,
+                note="الحافة (Cloudflare) رفضت الطلب - غالباً User-Agent. متأكد إن الجسر بيبعت UA عادي؟")
+        elif e.code in (401, 403):
             log("auth_error", status=e.code)
         return None
     except Exception as e:
