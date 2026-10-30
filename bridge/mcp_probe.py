@@ -28,24 +28,44 @@ INTEREST = ("trade", "order", "position", "account", "symbol", "market", "tick",
 
 
 def main():
-    url = os.environ.get("MT5_MCP_URL", "") or "http://127.0.0.1:22346/mcp"
+    env_url = os.environ.get("MT5_MCP_URL", "")
     key = os.environ.get("MT5_MCP_KEY", "")
+    # the terminal's MCP server is on 22346 and MetaEditor's is on 22345 - the Copy
+    # button in the terminal's MCP tab can put either one on the clipboard, so we
+    # simply try them all and use the one that answers.
+    candidates = []
+    for u in (env_url, "http://127.0.0.1:22346/mcp", "http://127.0.0.1:22345/mcp"):
+        if u and u not in candidates:
+            candidates.append(u)
+
     print("=" * 72)
     print("MT5 MCP probe")
     print("=" * 72)
-    print("url  :", url)
     print("key  :", ("yes (%d chars)" % len(key)) if key else "NO  <-- put it in the .env")
+    print("urls :", " , ".join(candidates))
     print()
 
-    client = McpClient(url, key)
-    try:
-        client.initialize()
-    except McpError as e:
-        print("HANDSHAKE FAILED:", e)
+    client = None
+    last_error = ""
+    for url in candidates:
+        c = McpClient(url, key)
+        try:
+            c.initialize()
+            client = c
+            print("CONNECTED to", url)
+            break
+        except McpError as e:
+            last_error = str(e)
+            print("  ", url, "->", e)
+    if client is None:
         print()
-        print("If it says 401 -> the API key is wrong or empty.")
-        print("If it says connection refused -> MetaTrader 5 is not running,")
-        print("or 'Enable internal server' is off in Tools > Options > MCP.")
+        print("NO MCP SERVER ANSWERED:", last_error)
+        print()
+        print("Check these:")
+        print("  1) MetaTrader 5 must be RUNNING")
+        print("  2) Tools > Options > MCP > 'Enable internal server' must be ticked")
+        print("  3) the API Key in the .env must be the terminal's one")
+        print("     (Tools > Options > MCP -> next to API Key press Generate, then copy it)")
         return 1
 
     print("server:", json.dumps(client.server_info, ensure_ascii=False))

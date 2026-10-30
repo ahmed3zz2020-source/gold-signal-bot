@@ -35,7 +35,9 @@ if (-not $key) {
     $m = [regex]::Match($clip.Trim(), '^([A-Za-z0-9_\-+/=]{30,})$')
     if ($m.Success) { $key = $m.Groups[1].Value }
 }
-if (-not $url) { $url = "http://127.0.0.1:22346/mcp" }
+# the terminal MCP server is always on 22346 (MetaEditor uses 22345) - the
+# Copy button can put either address on the clipboard, so we force the terminal one
+if ($url -notmatch ":22346") { $url = "http://127.0.0.1:22346/mcp" }
 
 if (-not $key) {
     Write-Host "  the clipboard does not contain the MCP key."
