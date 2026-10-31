@@ -50,7 +50,7 @@ remote_alive() {
   now=$(( $(date +%s) * 1000 ))
   diff=$(( now - ts ))
   [ "$diff" -ge 0 ] || return 1
-  [ "$diff" -lt 180000 ] || return 1
+  [ "$diff" -lt 280000 ] || return 1   # the heartbeat now arrives every 240s
   return 0
 }
 

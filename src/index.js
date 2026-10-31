@@ -485,7 +485,9 @@ setInterval(() => {
     lastSignal: lastSignalInfo(),
     journal: journalSeen.size, resolved: perf.rawN, pGlobal: perf.pGlobal,
   }).catch(() => {});
-}, 60000);
+}, 240000);   // every 4 minutes: 360 writes/day. The free Cloudflare KV limit is
+              // 1000 writes/day for the WHOLE account - at 60s the heartbeat alone
+              // needed 1440 and burned the budget of every other store.
 pushHeartbeat({
   ok: true, ts: now(), price: ctxPrice(), day: state.day,
   bars: { m1: builder.series(1).length, m15: builder.series(15).length },
