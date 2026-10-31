@@ -52,6 +52,38 @@ function save() {
   fs.writeFileSync(HISTORY_FILE, JSON.stringify({ bars: keep }));
 }
 
+// ── the durable bar store ───────────────────────────────────────────────────
+// The bars used to live ONLY on this container's disk. Every container recycle
+// brought the engine back with the same 72 old bars, so it could never warm up:
+// the gate needs 40 fifteen-minute bars (m15) and the series never grew past 8.
+// Now the engine owns the upload: every 10 minutes it pushes its own bars to
+// Cloudflare KV, and the keepalive restores them from there on the next boot.
+// 144 writes/day - well inside the account's daily quota.
+const CF_ACCOUNT = process.env.CF_ACCOUNT || '74e046678adabf0706024b97b205882b';
+const CF_NS = process.env.CF_NS || 'f39b746eed6c4671959bc710d82fcbc1';
+const CF_BARS_URL = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/storage/kv/namespaces/${CF_NS}/values/history.json`;
+
+/** Push the live bar series to the durable store. Returns true on success. */
+async function pushBarsToKv() {
+  const tok = process.env.CLOUDFLARE_API_TOKEN;
+  if (!tok) return false;
+  const keys = Object.keys(state.bars).sort();
+  const keep = {};
+  for (const k of keys.slice(-8000)) keep[k] = state.bars[k];
+  if (!Object.keys(keep).length) return false;
+  try {
+    const r = await fetch(CF_BARS_URL, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${tok}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bars: keep }),
+    });
+    return r.ok;
+  } catch { return false; }
+}
+
+setInterval(() => { pushBarsToKv().catch(() => {}); }, 600000);   // every 10 minutes
+pushBarsToKv().catch(() => {});                                  // and once at boot
+
 const builder = new BarBuilder();
 function rebuild() {
   // Restore the bars with their REAL high/low. The old version pushed the close twice,

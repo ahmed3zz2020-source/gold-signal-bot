@@ -83,7 +83,10 @@ sync_state() {
   case "$last" in ''|*[!0-9]*) last=0 ;; esac
   for f in $KV_FILES; do
     [ -f "$REPO/$f" ] || continue
-    if [ "$f" = "history.json" ] && [ $((now_s - last)) -lt "$KV_HISTORY_INTERVAL" ]; then
+    # history.json belongs to the ENGINE now: it uploads the live bars every 10
+    # minutes. Uploading the local copy from here would overwrite the fresh
+    # series with a stale one - that is exactly what froze the bars before.
+    if [ "$f" = "history.json" ]; then
       continue
     fi
     kv_put "$f" "$REPO/$f" || say "warn: could not upload $f"
@@ -93,7 +96,10 @@ sync_state() {
 }
 
 # ── 1. the project must be in a folder that survives the session ──────────────
-if [ ! -f "$REPO/src/index.js" ]; then
+if [ -f "$REPO/src/index.js" ]; then
+  # the folder is already there: pull the newest code so a restart runs the fix
+  git -C "$REPO" -c http.sslVerify=false pull --ff-only >/dev/null 2>&1 && say "pulled the newest code" || say "warn: could not pull (using what is on disk)"
+else
   mkdir -p "$(dirname "$REPO")" || die "cannot create $(dirname "$REPO")"
   if git -c http.sslVerify=false clone --depth 1 "$REPO_URL" "$REPO" >/dev/null 2>&1; then
     say "cloned the project into $REPO"
