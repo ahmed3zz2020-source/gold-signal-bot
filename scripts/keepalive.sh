@@ -37,6 +37,23 @@ KV_FILES="state.json journal.jsonl outcomes.jsonl history.json"
 KV_HISTORY_INTERVAL="${KV_HISTORY_INTERVAL:-600}"   # seconds between history uploads
 SYNC_MARKER="$REPO/.kv-synced-at"
 
+# The bus is where the engine reports from. If its heartbeat is fresh, the engine is
+# alive in ANOTHER container - and starting a second one here would double every
+# signal (two engines, two firedKeys, two positions). So: ask the bus first.
+BUS_URL="${BUS_URL:-https://gold-engine.octashares.com}"
+
+remote_alive() {
+  local raw ts now diff
+  raw=$(curl -s -m 12 -H "Authorization: Bearer ${BRIDGE_TOKEN:-}" "${BUS_URL}/status" 2>/dev/null) || return 1
+  ts=$(printf '%s' "$raw" | grep -o '"ts":[0-9]*' | head -1 | cut -d: -f2)
+  [ -n "$ts" ] || return 1
+  now=$(( $(date +%s) * 1000 ))
+  diff=$(( now - ts ))
+  [ "$diff" -ge 0 ] || return 1
+  [ "$diff" -lt 180000 ] || return 1
+  return 0
+}
+
 say() { printf '%s\n' "$*"; }
 die() { say "FAIL: $*"; exit 1; }
 
@@ -155,6 +172,14 @@ port_pid() { lsof -ti "tcp:${PORT}" -sTCP:LISTEN 2>/dev/null | head -1; }
 
 if [ "$(health_code)" = "200" ]; then
   say "OK — the engine is already up and /health answers 200"
+  sync_state
+  exit 0
+fi
+
+# the engine may be alive in a different container (the cron session gets a fresh
+# one every time). If the bus heartbeat is fresh, it is alive - sync and leave it.
+if remote_alive; then
+  say "OK - the engine is alive elsewhere (fresh heartbeat); not starting a second one"
   sync_state
   exit 0
 fi
